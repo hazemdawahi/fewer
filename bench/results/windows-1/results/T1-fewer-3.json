@@ -1,0 +1,105 @@
+{
+ "duration_api_ms": 4529,
+ "stop_reason": "end_turn",
+ "session_id": "b9f28325-1a9d-4f24-a264-cbfb114b6163",
+ "total_cost_usd": 0.047384800000000005,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 4548,
+  "cache_read_input_tokens": 17864,
+  "output_tokens": 371,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 4548,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 371,
+    "cache_read_input_tokens": 17864,
+    "cache_creation_input_tokens": 4548,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 4548
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 371,
+   "cacheReadInputTokens": 17864,
+   "cacheCreationInputTokens": 4548,
+   "webSearchRequests": 0,
+   "costUSD": 0.047384800000000005,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 0,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 4548,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I ran the suite: 163 tests, 2 failed (`FAILED (failures=1, errors=1)`). The rest passed.\n\n1. **ERROR: `test_parse_amount`** (`test_parse.TestParse`)\n   - Test: `tests/test_parse.py`, line 7: `self.assertEqual(parse_amount(\"1,234.50\"), 1234.5)`\n   - Raised in `calc/parse.py`, line 5, in `parse_amount`: `return float(text.strip())`\n   - Message: `ValueError: could not convert string to float: '1,234.50'`. The comma thousands separator is never removed before the conversion.\n\n2. **FAIL: `test_discount_rounding`** (`test_pricing.TestPricing`)\n   - Test: `tests/test_pricing.py`, line 7: `self.assertEqual(apply_discount(2.30, 50), 1.15)`\n   - Message: `AssertionError: 1.14 != 1.15`. `apply_discount` rounds half of 2.30 down to 1.14 instead of 1.15, probably a floating-point rounding issue.",
+ "ttft_ms": 5096,
+ "type": "result",
+ "duration_ms": 5127,
+ "uuid": "80d0b603-db2a-4950-842d-f515c2b55626",
+ "ttft_stream_ms": 2253,
+ "time_to_request_ms": 595,
+ "first_content_frame_ms": 2253,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 6.5,
+ "_helpers": [],
+ "_calls": [],
+ "_score": "right"
+}

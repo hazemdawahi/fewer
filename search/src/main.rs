@@ -132,6 +132,7 @@ mod view; // a readable view of agent sessions' lines (the token test of 2026-11
 mod short; // `run --short`: a short view of a command's output for an AI agent (2026-11-23)
 mod outline; // a file's definitions or headings with their line ranges (2026-11-23)
 mod hook; // Claude Code hooks: long Bash output shortened, the start card (2026-11-23)
+mod ahead; // read-ahead: what a message names, read and run before Claude's first reply (2026-11-26)
 mod savers; // the token savers in Claude Code's settings.json, added and removed (2026-11-23)
 mod tokens; // how many tokens Claude Code spent, from the saved sessions (2026-11-23)
 mod web; // `web "QUESTION"`: a page or a web question, the part that answers it (2026-11-25)
@@ -153,7 +154,7 @@ mod sample_tests;
 const MISMATCH: &str = "made for another archive, or before this one changed";
 
 const HELP: &str = "\
-fewer - 87% fewer tokens in Claude Code, with the same answers as without it
+fewer - 86% fewer tokens in Claude Code, with the same answers as without it
 
 For you:
   fewer install                   put fewer into Claude Code (shows every change first, asks once)

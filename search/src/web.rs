@@ -103,6 +103,20 @@ struct Own {
 struct SessionFlags {
     deny: Vec<String>,
     settings: Vec<Json>,
+    /// Every rule of its --allowedTools and --disallowedTools (read-ahead's commands).
+    allowed: Vec<String>,
+    disallowed: Vec<String>,
+}
+
+/// The rules this session's own command line gives, which no settings file holds: the settings
+/// of its --settings, and the rules of its --allowedTools and --disallowedTools (each as written,
+/// `Bash(python3:*)`); nothing when fewer cannot tell them (an Agent SDK program, settings it
+/// cannot read). For read-ahead, which runs a command only when the session's rules allow it.
+pub fn session_rules() -> (Vec<Json>, Vec<String>, Vec<String>) {
+    match session_flags() {
+        Ok(f) => (f.settings, f.allowed, f.disallowed),
+        Err(_) => (Vec::new(), Vec::new(), Vec::new()),
+    }
 }
 
 /// The command line of the claude this command runs under (the first claude above it): None when
@@ -134,11 +148,49 @@ fn session_claude_args() -> Option<Vec<String>> {
 /// them: an Agent SDK session (its permission callback is the program's own), a plugin folder
 /// given there (its hooks), settings given there that cannot be read.
 fn session_flags() -> Result<SessionFlags, String> {
-    if std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok_and(|e| e.starts_with("sdk")) {
+    // (an Agent SDK program, TypeScript or Python, answers Claude Code's permission questions in
+    // its own code, which fewer cannot see; plain `claude -p` is "sdk-cli": its rules are its
+    // settings and its command line, read below, as in an interactive session)
+    if std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok_and(|e| sdk_program(&e)) {
         return Err("this is an Agent SDK session, whose own permission callback fewer cannot see: not read (use WebFetch)".into());
     }
     let Some(words) = session_claude_args() else { return Ok(SessionFlags::default()) };
     session_flags_of(&words)
+}
+
+/// Whether Claude Code's entry point (CLAUDE_CODE_ENTRYPOINT) is an Agent SDK program, whose
+/// permission callback is its own: sdk-ts, sdk-py and the like; not sdk-cli (`claude -p`).
+fn sdk_program(entry: &str) -> bool {
+    entry.starts_with("sdk") && entry != "sdk-cli"
+}
+
+/// The rules in one value of --allowedTools or --disallowedTools: apart by commas or spaces,
+/// except inside a rule's parentheses (`Bash(git diff:*),Read` is two rules).
+fn rule_list(v: &str) -> Vec<String> {
+    let (mut out, mut cur, mut depth) = (Vec::new(), String::new(), 0usize);
+    for c in v.chars() {
+        match c {
+            '(' => {
+                depth += 1;
+                cur.push(c);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                cur.push(c);
+            }
+            ',' | ' ' if depth == 0 => {
+                if !cur.trim().is_empty() {
+                    out.push(cur.trim().to_string());
+                }
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim().to_string());
+    }
+    out
 }
 
 fn session_flags_of(words: &[String]) -> Result<SessionFlags, String> {
@@ -152,7 +204,13 @@ fn session_flags_of(words: &[String]) -> Result<SessionFlags, String> {
         };
         match flag {
             "--plugin-dir" | "--plugin-dirs" => return Err("Claude Code was started with a plugin folder (--plugin-dir), whose hooks fewer cannot see: not read (use WebFetch)".into()),
-            "--disallowedTools" | "--disallowed-tools" | "--disallowed_tools" => {
+            // (a program answers the permission questions: a prompt tool, or a driver speaking
+            // stream-json, which can carry a permission callback)
+            "--permission-prompt-tool" => return Err("Claude Code was started with a permission prompt tool (--permission-prompt-tool), whose answers fewer cannot see: not read (use WebFetch)".into()),
+            "--input-format" if inline.clone().or_else(|| words.get(i + 1).cloned()).as_deref() == Some("stream-json") => {
+                return Err("a program drives this session (--input-format stream-json), whose own permission callback fewer cannot see: not read (use WebFetch)".into());
+            }
+            "--disallowedTools" | "--disallowed-tools" | "--disallowed_tools" | "--allowedTools" | "--allowed-tools" | "--allowed_tools" => {
                 // (its values up to the next option: rules apart by commas or spaces)
                 let mut vals: Vec<String> = inline.into_iter().collect();
                 let mut j = i + 1;
@@ -160,8 +218,14 @@ fn session_flags_of(words: &[String]) -> Result<SessionFlags, String> {
                     vals.push(words[j].clone());
                     j += 1;
                 }
-                for v in vals.iter().flat_map(|v| v.split(',')).map(str::trim).filter(|v| v.starts_with("WebFetch") || v.starts_with("WebSearch")) {
-                    f.deny.push(v.to_string());
+                // (the words as the process list shows them, a rule's spaces splitting it: joined
+                // again, then apart at commas and spaces outside its parentheses)
+                let rules = rule_list(&vals.join(" "));
+                if flag.contains("disallowed") {
+                    f.deny.extend(rules.iter().filter(|v| v.starts_with("WebFetch") || v.starts_with("WebSearch")).cloned());
+                    f.disallowed.extend(rules);
+                } else {
+                    f.allowed.extend(rules);
                 }
                 i = j;
                 continue;
@@ -3346,10 +3410,22 @@ mod tests {
         assert!(f.deny.is_empty() && f.settings.is_empty());
         let f = session_flags_of(&w("claude -p job --disallowedTools Bash(rm:*),WebFetch(domain:evil.example) WebSearch --model x")).unwrap();
         assert_eq!(f.deny, ["WebFetch(domain:evil.example)", "WebSearch"]);
+        assert_eq!(f.disallowed, ["Bash(rm:*)", "WebFetch(domain:evil.example)", "WebSearch"]);
+        // (every allowed rule too, a rule's spaces as the process list splits them: read-ahead's
+        // commands are checked against them)
+        let f = session_flags_of(&w("claude -p job --allowedTools Read Bash(python3:*) Bash(git diff:*),Grep --model x")).unwrap();
+        assert_eq!(f.allowed, ["Read", "Bash(python3:*)", "Bash(git diff:*)", "Grep"]);
+        assert!(f.deny.is_empty() && f.disallowed.is_empty());
         let f = session_flags_of(&w("claude --settings {\"permissions\": {\"deny\": [\"WebFetch\"]}} -p x")).unwrap();
         assert_eq!(f.settings.len(), 1);
         assert!(session_flags_of(&w("claude --settings /nonexistent/x.json")).is_err());
         assert!(session_flags_of(&w("claude --plugin-dir /p")).is_err());
+        // (a program answering the permission questions: not read; plain -p: read as usual)
+        assert!(session_flags_of(&w("claude -p x --permission-prompt-tool mcp__p__ask")).is_err());
+        assert!(session_flags_of(&w("claude -p --input-format stream-json --output-format stream-json")).is_err());
+        assert!(session_flags_of(&w("claude -p --input-format=stream-json")).is_err());
+        assert!(session_flags_of(&w("claude -p job --input-format text")).is_ok());
+        assert!(sdk_program("sdk-ts") && sdk_program("sdk-py") && !sdk_program("sdk-cli") && !sdk_program("cli") && !sdk_program("claude-vscode"));
     }
 
     #[test]

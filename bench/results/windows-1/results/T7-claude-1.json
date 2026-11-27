@@ -1,0 +1,130 @@
+{
+ "duration_api_ms": 13499,
+ "stop_reason": "end_turn",
+ "session_id": "981d686a-c15d-4b6f-af1d-af19af9af604",
+ "total_cost_usd": 0.0822698,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 6887,
+  "cache_read_input_tokens": 64349,
+  "output_tokens": 714,
+  "output_tokens_details": {
+   "thinking_tokens": 15
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 6887,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 466,
+    "cache_read_input_tokens": 23877,
+    "cache_creation_input_tokens": 161,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 161
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 714,
+   "cacheReadInputTokens": 64349,
+   "cacheCreationInputTokens": 6887,
+   "webSearchRequests": 0,
+   "costUSD": 0.0822698,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 15,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 6887,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "The last commit (`df77eb8`, \"retry longer; lower tax on big orders\") changed two functions in two files.\n\n**1. `tax(price)` in `calc/pricing.py`**\n- **Before:** every price was taxed at `TAX_RATE`, which is 0.08 (8%).\n- **After:** prices under 1000 are still taxed at 8%. Prices of 1000 or more are taxed at 5%. The 0.05 is written directly into the function instead of being a named constant.\n- The cutoff is `price < 1000`, so a price of exactly 1000 already gets 5%. Because of this, tax goes down at the cutoff: a price of 999 is taxed 79.92, but 1000 is taxed only 50.00.\n\n**2. `backoff(attempt)` in `calc/upload.py`**\n- **Before:** the wait between upload retries was `2 ** attempt`, capped at 30.\n- **After:** the cap is now 60, so later retries can wait up to twice as long. Waits for attempts 0\u00e2\u20ac\u201c4 (1, 2, 4, 8, 16) are unchanged. Attempt 5 now waits 32 instead of 30, and attempt 6 or later waits 60. With the default of 7 retries (`MAX_UPLOAD_RETRIES`), the longest wait now hits the new 60 cap.\n\nThe commit changed nothing else. Neither file had other edits, and no tests were touched.",
+ "ttft_ms": 2866,
+ "type": "result",
+ "duration_ms": 14213,
+ "uuid": "bc03f6d8-1efd-4aa0-8301-52136a46a1e0",
+ "ttft_stream_ms": 2164,
+ "time_to_request_ms": 311,
+ "first_content_frame_ms": 2165,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 15.4,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "git show df77eb8",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /d/a/_temp/bench/runs/T7-claude-1 && git show df77eb8",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "grep -n \"TAX_RATE\\s*=\" calc/pricing.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /d/a/_temp/bench/runs/T7-claude-1 && grep -n \"TAX_RATE\\s*=\" calc/pricing.py",
+   "error": null,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

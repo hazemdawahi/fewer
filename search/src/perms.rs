@@ -226,6 +226,34 @@ impl Rules {
         let hit = |r: &Rule| r.tool == "Bash" && parts.iter().any(|c| bash_matches(r.spec.as_deref(), c));
         verdict(&self.deny, &self.ask, hit)
     }
+
+    /// The rules for a session in `cwd` with those its own command line gives as well (the
+    /// settings of --settings, --allowedTools, --disallowedTools: web.rs), as Claude Code holds
+    /// the session to them.
+    pub fn load_session(cwd: &Path) -> Rules {
+        let mut r = Rules::load(cwd);
+        let (settings, allowed, disallowed) = crate::web::session_rules();
+        let file = PathBuf::from("(Claude Code's command line)");
+        for s in &settings {
+            for (key, into) in [("deny", &mut r.deny), ("ask", &mut r.ask), ("allow", &mut r.allow)] {
+                into.extend(list(s, key).iter().filter_map(|t| parse_rule(t, &file, cwd)));
+            }
+        }
+        r.allow.extend(allowed.iter().filter_map(|t| parse_rule(t, &file, cwd)));
+        r.deny.extend(disallowed.iter().filter_map(|t| parse_rule(t, &file, cwd)));
+        r
+    }
+
+    /// Whether the rules let `argv` run with no question asked: a Bash allow rule covers the
+    /// whole command, and no deny or ask rule matches it or a part of it (read-ahead runs only
+    /// such a command, before Claude's reply: what Claude Code would run without asking).
+    pub fn allows_command(&self, argv: &[OsString]) -> bool {
+        if self.command(argv) != Verdict::Free {
+            return false;
+        }
+        let Some(whole) = command_parts(argv).into_iter().next() else { return false };
+        self.allow.iter().any(|r| r.tool == "Bash" && bash_matches(r.spec.as_deref(), &whole))
+    }
 }
 
 fn verdict(deny: &[Rule], ask: &[Rule], hit: impl Fn(&Rule) -> bool) -> Verdict {

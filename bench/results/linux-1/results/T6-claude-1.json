@@ -1,0 +1,168 @@
+{
+ "duration_api_ms": 24777,
+ "stop_reason": "end_turn",
+ "session_id": "067e21a5-571d-43d3-811f-05b15af6b9c6",
+ "total_cost_usd": 0.11614239999999998,
+ "usage": {
+  "input_tokens": 10,
+  "cache_creation_input_tokens": 8638,
+  "cache_read_input_tokens": 96692,
+  "output_tokens": 1383,
+  "output_tokens_details": {
+   "thinking_tokens": 281
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 8638,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 425,
+    "cache_read_input_tokens": 21835,
+    "cache_creation_input_tokens": 202,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 202
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 10,
+   "outputTokens": 1383,
+   "cacheReadInputTokens": 96692,
+   "cacheCreationInputTokens": 8638,
+   "webSearchRequests": 0,
+   "costUSD": 0.11614239999999998,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 281,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 8638,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 6,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "`test_discount_rounding` passes now. I ran `python -m unittest -v tests.test_pricing` and both tests in the file passed (`Ran 2 tests ... OK`). pytest isn't installed here, so I used unittest.\n\n**The bug:** `apply_discount` in `calc/pricing.py` converted to cents with `int(...)`, which cuts off the decimals instead of rounding. Floating-point math makes `2.30 * 0.5 * 100` come out as `114.99999999999999`. `int()` turned that into `114`, so the function returned `1.14` instead of `1.15`.\n\n**The fix:** one line, using `round(...)` in place of `int(...)`:\n\n```python\nreturn round(price * (1 - pct / 100) * 100) / 100\n```\n\nThis changes behaviour beyond the failing case: discounted prices are now rounded to the nearest cent rather than always rounded down. That seems to be the intent of \"in cents (two places)\" and of the test. Python's `round()` rounds exact half-cent ties to the even cent, so if you need half-cents to always round up, use `decimal`.\n\nI didn't run the other test files (`test_parse.py`, `test_many.py`).",
+ "ttft_ms": 3997,
+ "type": "result",
+ "duration_ms": 25302,
+ "uuid": "b007185c-1e6d-4467-a0e0-fd5b600c78bb",
+ "ttft_stream_ms": 3105,
+ "time_to_request_ms": 138,
+ "first_content_frame_ms": 3106,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 25.9,
+ "_test_passes": true,
+ "_test_file_unchanged": true,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "ls -R calc tests | grep -v pyc; cat tests/test_pricing.py; cat calc/*.py; git show ead565b --stat",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-1 && ls -R calc tests | grep -v pyc; cat tests/test_pricing.py; cat calc/*.py; git show ead565b --stat",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cat calc/pricing.py; git show ead565b --stat",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-1 && cat calc/pricing.py; git show ead565b --stat",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Edit",
+   "input": "/home/runner/work/_temp/bench/runs/T6-claude-1/calc/pricing.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "python -m pytest tests/test_pricing.py -v 2>&1 | tail -6",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Edit",
+   "input": "/home/runner/work/_temp/bench/runs/T6-claude-1/calc/pricing.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-1 && python -m pytest tests/test_pricing.py -v 2>&1 | tail -6",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "python -m unittest -v tests.test_pricing 2>&1 | tail -6",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-1 && python -m unittest -v tests.test_pricing 2>&1 | tail -6",
+   "error": null,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

@@ -398,7 +398,14 @@ mod windows_path {
              if ($n -ne $p) {{ Set-ItemProperty -Path $k -Name Path -Value $n -Type ExpandString; \
              [Environment]::SetEnvironmentVariable('FEWER_PATH_NOTICE', '1', 'User'); [Environment]::SetEnvironmentVariable('FEWER_PATH_NOTICE', $null, 'User'); 'taken' }}"
         );
-        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).stdin(std::process::Stdio::null()).output().map_err(|e| format!("PowerShell could not be run: {e}"))?;
+        // (Windows PowerShell with its own module path: PowerShell 7's, passed down from a
+        // terminal of it, leaves it without its own cmdlets; see cmd_update)
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .env_remove("PSModulePath")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("PowerShell could not be run: {e}"))?;
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
@@ -447,11 +454,13 @@ pub fn cmd_update(args: Vec<OsString>) -> i32 {
             (c, "sh")
         };
         // (Windows: the release's install.ps1, its question answered; the program that runs
-        // this is renamed away, not written over)
+        // this is renamed away, not written over. Windows PowerShell with its own module path:
+        // PowerShell 7's, passed down from a terminal of it, left it without Get-FileHash, and
+        // the update failed (GitHub's Windows machine, 2026-11-27); with none it takes its own)
         #[cfg(windows)]
         let (mut sh, shell) = {
             let mut c = std::process::Command::new("powershell");
-            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {GET_PS1_URL} | iex; exit $LASTEXITCODE")]).env("FEWER_YES", "1");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {GET_PS1_URL} | iex; exit $LASTEXITCODE")]).env("FEWER_YES", "1").env_remove("PSModulePath");
             (c, "PowerShell")
         };
         if let Some(bin) = config::get(&cfg, "install.bin") {
@@ -1000,13 +1009,21 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
     // back first at fewer's own values, and out of the record)
     let old_lean = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.lean").map(str::to_string)).unwrap_or_default();
     let (retired, kept_lean) = savers::retired_parts(&old_lean);
+    // (the add-ons back: 1.1.0; the session titles back: 1.2.0)
+    let add_ons_back = retired.split(',').any(|p| p != "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" && !p.is_empty());
+    let titles_back = retired.split(',').any(|p| p == "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE");
     let updated = !savers::remove_lean(&mut after, &retired).is_empty() || !retired.is_empty();
+    // (an update from a version before 1.2.0: workflows and the Artifact tool were turned off by
+    // fewer; they are the developer's switches, so fewer's own values are taken back)
+    let old_start = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.start").map(str::to_string)).unwrap_or_default();
+    let (retired_start, kept_start) = savers::retired_start(&old_start);
+    let features_back = !savers::remove_start(&mut after, &retired_start).is_empty() || !retired_start.is_empty();
     let skills = savers::skills_found(&dir);
     // (a window the developer set is theirs, whatever its value: kept, never taken back)
     let their_window = now.get(savers::WINDOW_KEY).map(|v| v.to_string());
     let plan = savers::add(&mut after, home, me).and_then(|said| {
-        let (workflows, artifact, names) = savers::start_plan(&after, &skills);
-        let start = savers::add_start(&mut after, workflows, artifact, &names)?;
+        let names = savers::start_plan(&after, &skills);
+        let start = savers::add_start(&mut after, &names)?;
         let mut lean = savers::lean_plan(&after, home);
         lean.extend(savers::reads_plan(&after, &word));
         let lean = savers::add_lean(&mut after, &lean, home, their_window.is_some())?;
@@ -1020,7 +1037,11 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
         }
     };
     if after == now && savers::agents_there(&dir, &word) {
-        writeln!(t.out, "fewer is on already in {}.", file.display())?;
+        if plan_shown == Plan::Quiet {
+            writeln!(t.out, "Fewer is on already. To turn it off: fewer off")?;
+        } else {
+            writeln!(t.out, "fewer is on already in {}.", file.display())?;
+        }
         return Ok(true);
     }
     // (on already, its agents' files from another version: only they are written, no copy of a
@@ -1034,7 +1055,11 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
             writeln!(t.err, "fewer: its agents' files could not be written: {e}")?;
             return Ok(false);
         }
-        writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("fewer is on; its agents' files are brought up to this version ({} unchanged): they apply to new chats, and to old ones when you reopen them.", tilde(&file))))?;
+        if plan_shown == Plan::Quiet {
+            writeln!(t.out, "✓ Fewer is on. To turn it off: fewer off")?;
+        } else {
+            writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("fewer is on; its agents' files are brought up to this version ({} unchanged): they apply to new chats, and to old ones when you reopen them.", tilde(&file))))?;
+        }
         return Ok(true);
     }
     let was_on = s.home.as_ref().map(|h| config::read(h)).is_ok_and(|c| ["savers.start", "savers.lean"].iter().any(|k| config::get(&c, k).is_some_and(|v| !v.is_empty())));
@@ -1045,27 +1070,30 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
         savers::READS.join(", ")
     );
     // (on already, from an earlier version: what this version changes, said as such)
-    let updating = was_on && (updated || reads);
-    if updating && plan_shown != Plan::Shown {
+    let updating = was_on && (updated || reads || features_back);
+    if updating && !matches!(plan_shown, Plan::Shown | Plan::Quiet) {
         writeln!(t.out, "{}", wrapped("", "", &format!("fewer is on; this version changes it in {} (a copy of the file is kept first) and in its agents' files:", tilde(&file))))?;
-        if updated {
+        if add_ons_back {
             writeln!(t.out, "{}", wrapped("  - ", "    ", "Your add-ons (MCP servers) and claude.ai's connectors work again, as they do without fewer; only fewer's own MCP server stays off (Claude runs fewer's commands instead)."))?;
             writeln!(t.out, "{}", wrapped("  - ", "    ", "Claude changes files with Claude Code's own Edit and Write tools, so rewind (Esc Esc) and your permission rules work as usual."))?;
+        }
+        if features_back || titles_back {
+            writeln!(t.out, "{}", wrapped("  - ", "    ", "Claude Code's features are as you have them again: workflows, subagents, skills, plan mode, Claude's questions, the to-do list, Artifacts and the AI-written chat titles. fewer makes the agents it starts lean."))?;
         }
         if reads {
             writeln!(t.out, "{}", wrapped("  - ", "    ", &reads_line))?;
         }
-    } else if plan_shown != Plan::Shown {
+    } else if !matches!(plan_shown, Plan::Shown | Plan::Quiet) {
     // (numbered as the second part of install's screen; alone for `fewer on`)
     let numbered = plan_shown == Plan::Preview;
     let (head, rest, b1, b2) = if numbered { ("  2. ", "     ", "       - ", "         ") } else { ("", "", "  - ", "    ") };
     // (no settings.json yet: made, nothing to copy)
     let change = if was.is_some() { format!("it changes {} (a copy of the file is kept first)", tilde(&file)) } else { format!("it makes {} (there is none yet)", tilde(&file)) };
-    let what = format!("87% fewer tokens in our tests, with the same answers: {change} and writes fewer's agents' files in {}:", tilde(&dir.join("agents")));
+    let what = format!("86% fewer tokens in our tests, with the same answers: {change} and writes fewer's agents' files in {}:", tilde(&dir.join("agents")));
     writeln!(t.out, "{}", wrapped(head, rest, &if numbered { format!("Turn fewer on, {what}") } else { format!("fewer on turns it on, {what}") }))?;
     let bullet = |t: &mut Talk, text: &str| writeln!(t.out, "{}", wrapped(b1, b2, text));
     if lean.split(',').any(|r| r == "lean:agent") {
-        bullet(t, &format!("Claude works through fewer's lean agent ({}): Claude Code's Bash, Read, Edit and Write tools and your add-ons, short rules that keep the safety rules, few steps; skills, helpers and workflows on demand (helpers and workflow agents start without your CLAUDE.md files and add-ons, to keep each step small: the job Claude writes for them is all they get). Every file change goes through Edit and Write, so rewind (Esc Esc) and your permission rules work as usual.", tilde(&savers::lean_agent_file(&dir))))?;
+        bullet(t, &format!("Claude works through fewer's lean agent ({}): short rules that keep the safety rules, few steps, and Claude Code's tools and features as you have them (workflows, subagents, skills, plan mode, your add-ons). The agents it starts in workflows and subagents are lean: they start without your CLAUDE.md files and add-ons, to keep each step small (the job Claude writes for them is all they get). Every file change goes through Edit and Write, so rewind (Esc Esc) and your permission rules work as usual.", tilde(&savers::lean_agent_file(&dir))))?;
     } else {
         let theirs = after.get("agent").and_then(crate::json::Json::str).unwrap_or("?").to_string();
         bullet(t, &format!("Your own agent ({theirs}) stays Claude Code's main agent, so the lean start is not used (the savings need it): to use it, take \"agent\" out of {} and run fewer on.", tilde(&file)))?;
@@ -1076,14 +1104,16 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
         None => format!("long chats compacted at about {} tokens, with a short summary", group(savers::LEAN_WINDOW - savers::BELOW)),
     };
     bullet(t, &format!("Long output of commands that succeed comes back short (all of it saved); new and compacted chats start with fewer's card; {compacted}."))?;
-    let skills_line = if n_skills > 0 { format!(", {n_skills} skills listed by name only") } else { String::new() };
     // (with the developer's own agent, fewer's own server stays on too: savers::lean_plan)
     let add_ons = if lean.split(',').any(|r| r == "lean:deny-own") {
         "; fewer's own MCP server off (Claude runs fewer's commands instead; your other add-ons stay as they are)"
     } else {
         ""
     };
-    bullet(t, &format!("A smaller start: the Workflow and Artifact tools off (on demand){skills_line}{add_ons}; no AI-written session titles, no note of the tokens left after each step, and the note on commit lines moved into the Bash tool's own text (the lines are still written)."))?;
+    let skills_part = if n_skills > 0 { format!("{} skills listed by name only (each still works)", n_skills) } else { String::new() };
+    let start_parts: Vec<String> = [skills_part, add_ons.trim_start_matches("; ").to_string()].into_iter().filter(|p| !p.is_empty()).collect();
+    let start_line = if start_parts.is_empty() { String::new() } else { format!("{}; ", start_parts.join("; ")) };
+    bullet(t, &format!("A smaller start: {start_line}no note of the tokens left after each step, and the note on commit lines moved into the Bash tool's own text (the lines are still written). Your Claude Code switches stay as you set them."))?;
     if reads {
         bullet(t, &reads_line)?;
     }
@@ -1126,6 +1156,9 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
                     if key == "savers.lean" && !retired.is_empty() {
                         old = kept_lean.clone();
                     }
+                    if key == "savers.start" && !retired_start.is_empty() {
+                        old = kept_start.clone();
+                    }
                     let merged = match (old.is_empty(), rec.is_empty()) {
                         (_, true) => old,
                         (true, false) => rec.clone(),
@@ -1135,6 +1168,10 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
                 }
             }
             let copy = copy.map(|c| format!(" (a copy of the file before this change: {})", tilde(&c))).unwrap_or_default();
+            if plan_shown == Plan::Quiet {
+                writeln!(t.out, "✓ Fewer is on. To turn it off: fewer off")?;
+                return Ok(true);
+            }
             let done = if updating { "fewer is brought up to this version" } else { "fewer is on" };
             writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("{done}{copy}: it applies to new Claude Code chats, and to old ones when you reopen them.")))?;
             // (`fewer on` alone: what next; install says it after)
@@ -1159,6 +1196,7 @@ enum Plan {
     Show,
     Shown,
     Preview,
+    Quiet,
 }
 
 /// What fewer put in Claude Code's settings, taken out on a copy: (the file, its bytes as
@@ -1259,7 +1297,9 @@ pub fn cmd_tenx(args: Vec<OsString>) -> i32 {
                     return Ok(1);
                 }
             };
-            Ok(if tenx_step(&s, Opts { dry_run, yes: true }, t, &me, Plan::Show)? { 0 } else { 1 })
+            // (one line when done: it was asked for by name; the list of changes with --dry-run)
+            let plan = if dry_run { Plan::Show } else { Plan::Quiet };
+            Ok(if tenx_step(&s, Opts { dry_run, yes: true }, t, &me, plan)? { 0 } else { 1 })
         }),
         ["off"] => with_terminal(|t| tenx_off(&s, dry_run, t)),
         _ => {
@@ -1298,11 +1338,12 @@ fn tenx_off(s: &Setup, dry_run: bool, t: &mut Talk) -> io::Result<i32> {
         writeln!(t.out, "fewer is off already.")?;
         return Ok(0);
     };
-    if plan.3.is_empty() {
+    // (what it takes out: listed for --dry-run only; done, one line: it was asked for by name)
+    if dry_run && plan.3.is_empty() {
         // (nothing of it in settings.json: the file is left as it is, or not made)
         writeln!(t.out, "{}", wrapped("", "", &format!("fewer off takes out fewer's agents' files (nothing of fewer is in {}):", tilde(&plan.0))))?;
         writeln!(t.out, "  fewer's agents' files.")?;
-    } else {
+    } else if dry_run {
         writeln!(t.out, "{}", wrapped("", "", &format!("fewer off takes fewer out of {} (a copy of the file is kept first):", tilde(&plan.0))))?;
         writeln!(t.out, "{}", wrapped("  ", "  ", &format!("{}, and fewer's agents' files.", plan.3.join(", "))))?;
     }
@@ -1311,13 +1352,13 @@ fn tenx_off(s: &Setup, dry_run: bool, t: &mut Talk) -> io::Result<i32> {
         return Ok(0);
     }
     match take_back(s, &plan) {
-        Ok(copy) => {
-            let copy = copy.map(|c| format!(" (a copy of the file before this change: {})", tilde(&c))).unwrap_or_default();
+        // (a copy of the file is still kept first; the line only says what the user needs)
+        Ok(_copy) => {
             // (the token card counts fewer's replies until now)
             if let Ok(h) = &s.home {
                 let _ = config::set(h, "savers.off", &now_utc());
             }
-            writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("fewer is off{copy}. To turn it on again: fewer on")))?;
+            writeln!(t.out, "✓ Fewer is off. To turn it on: fewer on")?;
             Ok(0)
         }
         Err(e) => {
@@ -1719,13 +1760,13 @@ mod tests {
         assert_eq!(calls(&d), [get_call(), add_call(&home)]);
         // what changes is shown before the question, then claude's own output
         let h = home.display();
-        assert!(out.starts_with(&format!("fewer will make these changes in Claude Code:\n\n  1. Register fewer's MCP server for all your projects (user scope):\n       claude mcp add --scope user fewer -e FEWER_HOME={h} -- {ME} mcp\n\n  2. Turn fewer on, 87% fewer tokens in our tests")), "{out}");
+        assert!(out.starts_with(&format!("fewer will make these changes in Claude Code:\n\n  1. Register fewer's MCP server for all your projects (user scope):\n       claude mcp add --scope user fewer -e FEWER_HOME={h} -- {ME} mcp\n\n  2. Turn fewer on, 86% fewer tokens in our tests")), "{out}");
         // (fewer's changes shown before the one question that covers them, release check)
         assert!(flat(&out).contains("Settings you set yourself stay as they are; fewer off takes all of this back out. 3. Save your Claude Code chats ("), "{out}");
         // (the chats, saved by the same yes, said before the question too)
         assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off). 4. Add fewer's slash commands to Claude Code ({}): /fewer-tokens, /fewer-off, /fewer-on and /fewer-memory. Only you run them: Claude is not told about them. Register fewer and turn it on (the changes above)? [y/N] Added stdio MCP server fewer with command: ", shown(&d, "claude/projects"), tilde(&home), shown(&home, "config"), shown(&d, "claude/commands"))), "{out}");
         assert_eq!(out.matches("[y/N]").count(), 1, "{out}");
-        assert_eq!(out.matches("fewer on, 87% fewer tokens in our tests").count(), 1, "{out}");
+        assert_eq!(out.matches("fewer on, 86% fewer tokens in our tests").count(), 1, "{out}");
         assert!(out.contains(&format!("✓ Your Claude Code chats will be saved (sessions = on in {}).\n", shown(&home, "config"))), "{out}");
         assert!(out.ends_with(&format!("{USE_LINE}\n")));
         // the stub read the arguments as claude does
@@ -1778,7 +1819,7 @@ mod tests {
         let (code, out, _) = talk(install, &s, Opts { dry_run: true, yes: false }, true, "y\ny\n");
         assert_eq!(code, 0);
         let file = d.join("home").join("config");
-        assert!(flat(&out).contains(&format!("2. Turn fewer on, 87% fewer tokens in our tests, with the same answers: it makes {} (there is none yet)", shown(&d, "claude/settings.json"))), "{out}");
+        assert!(flat(&out).contains(&format!("2. Turn fewer on, 86% fewer tokens in our tests, with the same answers: it makes {} (there is none yet)", shown(&d, "claude/settings.json"))), "{out}");
         assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off).", shown(&d, "claude/projects"), tilde(&d.join("home")), tilde(&file))), "{out}");
         assert!(out.ends_with("Dry run: nothing was changed. `fewer install` asks \"Register fewer and turn it on (the changes above)? [y/N]\" and makes them on a yes; `fewer off` takes fewer back out.\n"), "{out}");
         assert!(!out.contains("Register it?") && !out.contains("[y/N] "));
@@ -1810,7 +1851,10 @@ mod tests {
         assert_eq!(config_rest(&d).as_deref(), Some("sessions = on\nsessions.codex = off\nsessions.aider = off\nsessions.cline = off\nsessions.cursor = off\n"));
         let settings = fs::read_to_string(d.join("claude").join("settings.json")).unwrap();
         assert!(settings.contains(&format!("\"command\": \"FEWER_HOME={} {ME} hook post-bash\"", hook_home(&d.join("home")))) && settings.contains("\"autoCompactWindow\": 100000"), "{settings}");
-        assert!(settings.contains("\"agent\": \"fewer-lean\"") && settings.contains("\"CLAUDE_CODE_DISABLE_WORKFLOWS\": \"1\"") && settings.contains("\"enableArtifact\": false") && !settings.contains("MCP_DESCRIPTION_LENGTH") && !settings.contains("ENABLE_CLAUDEAI_MCP_SERVERS") && settings.contains("\"deniedMcpServers\": [\n    {\n      \"serverName\": \"fewer\"\n    }\n  ]"), "{settings}");
+        // (Claude Code's own switches stay the developer's: workflows, the Artifact tool and the
+        // session titles are not touched)
+        assert!(!settings.contains("CLAUDE_CODE_DISABLE_WORKFLOWS") && !settings.contains("enableArtifact") && !settings.contains("CLAUDE_CODE_DISABLE_TERMINAL_TITLE"), "{settings}");
+        assert!(settings.contains("\"agent\": \"fewer-lean\"") && !settings.contains("MCP_DESCRIPTION_LENGTH") && !settings.contains("ENABLE_CLAUDEAI_MCP_SERVERS") && settings.contains("\"deniedMcpServers\": [\n    {\n      \"serverName\": \"fewer\"\n    }\n  ]"), "{settings}");
         // CLAUDE.md files stay on: the developer's own rules keep applying
         assert!(!settings.contains("CLAUDE_CODE_DISABLE_CLAUDE_MDS"), "{settings}");
         let agent = fs::read_to_string(d.join("claude").join("agents").join("fewer-lean.md")).unwrap();
@@ -1820,7 +1864,7 @@ mod tests {
         let wk = fs::read_to_string(d.join("claude").join("agents").join("fewer-worker.md")).unwrap();
         assert!(wk.contains("tools: Bash, Read, Edit, Write\n") && wk.contains(&format!("`{ME} changes [REV]`")) && !wk.contains("mcp list"), "{wk}");
         let cfg = config_text(&d).unwrap_or_default();
-        assert!(cfg.contains("savers.start = workflows,artifact\n") && cfg.contains("savers.lean = lean:agent,"), "{cfg}");
+        assert!(cfg.contains("savers.start = \n") && cfg.contains("savers.lean = lean:agent,"), "{cfg}");
 
         // registered already: said and shown, claude not run again; fewer on already
         let (code, out, _) = talk(install, &s, Opts::default(), true, "y\n");
@@ -1833,12 +1877,45 @@ mod tests {
         // uninstall takes it all back: the settings as they were, the agents' files gone
         let (code, out, _) = talk(uninstall, &s, Opts::default(), true, "y\n");
         assert_eq!(code, 0, "{out}");
-        assert!(out.contains("CLAUDE_CODE_DISABLE_WORKFLOWS removed, enableArtifact removed, agent removed"), "{out}");
+        assert!(out.contains("agent removed") && !out.contains("CLAUDE_CODE_DISABLE_WORKFLOWS"), "{out}");
         // (a settings.json and an agents/ that fewer made: taken away, not left as "{}" and an
         // empty folder, the release check)
         assert!(!d.join("claude").join("settings.json").exists() && !d.join("claude").join("agents").exists());
         let cfg = config_text(&d).unwrap_or_default();
         assert!(cfg.contains("savers.start = \n") && cfg.contains("savers.lean = \n"), "{cfg}");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn an_update_gives_back_the_switches_fewer_turned_off() {
+        // a 1.1 install: workflows, the Artifact tool and the session titles turned off by fewer,
+        // recorded as fewer's
+        let (d, s) = setup("switches-back");
+        let (code, _, err) = talk(install, &s, Opts { dry_run: false, yes: true }, false, "y\ny\n");
+        assert_eq!((code, err.as_str()), (0, ""));
+        let file = d.join("claude").join("settings.json");
+        let text = fs::read_to_string(&file).unwrap();
+        let old = text.replacen("{\n", "{\n  \"enableArtifact\": false,\n", 1).replacen("\"env\": {\n", "\"env\": {\n    \"CLAUDE_CODE_DISABLE_WORKFLOWS\": \"1\",\n    \"CLAUDE_CODE_DISABLE_TERMINAL_TITLE\": \"1\",\n", 1);
+        assert!(crate::json::parse(old.as_bytes()).is_ok() && old.contains("CLAUDE_CODE_DISABLE_WORKFLOWS") && old.contains("enableArtifact"), "{old}");
+        fs::write(&file, &old).unwrap();
+        let home = d.join("home");
+        config::set(&home, "savers.start", "workflows,artifact").unwrap();
+        let lean = config::get(&config::read(&home), "savers.lean").unwrap().to_string();
+        config::set(&home, "savers.lean", &format!("{lean},lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE")).unwrap();
+        // the update (fewer update runs install --yes): fewer's own values taken back, said so
+        let (code, out, err) = talk(install, &s, Opts { dry_run: false, yes: true }, false, "y\ny\n");
+        assert_eq!((code, err.as_str()), (0, ""), "{out}");
+        assert!(flat(&out).contains("Claude Code's features are as you have them again: workflows, subagents, skills, plan mode"), "{out}");
+        let now = fs::read_to_string(&file).unwrap();
+        assert!(!now.contains("CLAUDE_CODE_DISABLE_WORKFLOWS") && !now.contains("enableArtifact") && !now.contains("CLAUDE_CODE_DISABLE_TERMINAL_TITLE") && now.contains("\"agent\": \"fewer-lean\""), "{now}");
+        let cfg = config_text(&d).unwrap_or_default();
+        assert!(cfg.contains("savers.start = \n") && !cfg.contains("TERMINAL_TITLE") && cfg.contains("savers.lean = lean:agent,"), "{cfg}");
+        // a developer who turned workflows off themselves keeps them off
+        let theirs = now.replacen("\"env\": {\n", "\"env\": {\n    \"CLAUDE_CODE_DISABLE_WORKFLOWS\": \"1\",\n", 1);
+        fs::write(&file, &theirs).unwrap();
+        let (code, _, _) = talk(install, &s, Opts { dry_run: false, yes: true }, false, "y\ny\n");
+        assert_eq!(code, 0);
+        assert!(fs::read_to_string(&file).unwrap().contains("\"CLAUDE_CODE_DISABLE_WORKFLOWS\": \"1\""));
         fs::remove_dir_all(&d).unwrap();
     }
 
@@ -2045,11 +2122,12 @@ mod tests {
         // the status, then the one command that takes it back (no question), then on again
         let (code, out, _) = talk(|s, _, t| tenx_status(s, t), &s, Opts::default(), false, "");
         assert!(code == 0 && out.starts_with(&format!("fewer is on in {} since ", file.display())) && out.ends_with(". To turn it off: fewer off\n") && !out.contains("UTC"), "{out}");
+        // (the list of what it takes out: for --dry-run; done, one line)
         let (code, out, _) = talk(|s, _, t| tenx_off(s, true, t), &s, Opts::default(), false, "");
         assert!(code == 0 && out.ends_with("Dry run: nothing was changed.\n") && fs::read_to_string(&file).unwrap() == now, "{out}");
+        assert!(flat(&out).starts_with(&format!("fewer off takes fewer out of {} (a copy of the file is kept first): PostToolUse hook removed, SessionStart hook removed, PreCompact hook removed, ", tilde(&file))) && out.contains("agent removed"), "{out}");
         let (code, out, err) = talk(|s, _, t| tenx_off(s, false, t), &s, Opts::default(), false, "");
-        assert_eq!((code, err.as_str()), (0, ""), "{out}");
-        assert!(flat(&out).starts_with(&format!("fewer off takes fewer out of {} (a copy of the file is kept first): PostToolUse hook removed, SessionStart hook removed, PreCompact hook removed, ", tilde(&file))) && out.contains("agent removed") && out.ends_with("To turn it on again: fewer on\n"), "{out}");
+        assert_eq!((code, err.as_str(), out.as_str()), (0, "", "✓ Fewer is off. To turn it on: fewer on\n"));
         assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
         assert!(["fewer-lean.md", "fewer-lean-workflow.md", "fewer-worker.md"].iter().all(|f| !d.join("claude").join("agents").join(f).exists()));
         assert_eq!(copies(&d).len(), 2);
@@ -2057,13 +2135,18 @@ mod tests {
         assert_eq!(out, "fewer is off. To turn it on: fewer on\n");
         let (_, out, _) = talk(|s, _, t| tenx_off(s, false, t), &s, Opts::default(), false, "");
         assert_eq!(out, "fewer is off already.\n");
-        let (code, out, _) = talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Show).map(|ok| if ok { 0 } else { 1 }), &s, Opts::default(), false, "");
-        assert!(code == 0 && flat(&out).contains("fewer is on (a copy of the file before this change: "), "{out}");
+        // `fewer on` itself: one line, and one when it is on already
+        let (code, out, _) = talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Quiet).map(|ok| if ok { 0 } else { 1 }), &s, Opts::default(), false, "");
+        assert_eq!((code, out.as_str()), (0, "✓ Fewer is on. To turn it off: fewer off\n"));
         assert_eq!(fs::read_to_string(&file).unwrap(), now);
+        let (_, out, _) = talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Quiet).map(|ok| if ok { 0 } else { 1 }), &s, Opts::default(), false, "");
+        assert_eq!(out, "Fewer is on already. To turn it off: fewer off\n");
         // only the agents' files left (the settings changed by hand): fewer off takes them too
         fs::write(&file, theirs).unwrap();
+        let (_, out, _) = talk(|s, _, t| tenx_off(s, true, t), &s, Opts::default(), false, "");
+        assert!(out.contains("\n  fewer's agents' files.\n"), "{out}");
         let (_, out, _) = talk(|s, _, t| tenx_off(s, false, t), &s, Opts::default(), false, "");
-        assert!(out.contains("\n  fewer's agents' files.\n") && !d.join("claude").join("agents").join("fewer-lean.md").exists(), "{out}");
+        assert!(out == "✓ Fewer is off. To turn it on: fewer on\n" && !d.join("claude").join("agents").join("fewer-lean.md").exists(), "{out}");
         // uninstall: the MCP server and fewer go under one yes; the developer's window stays
         talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Show).map(|ok| if ok { 0 } else { 1 }), &s, Opts::default(), false, "");
         let (code, out, err) = talk(uninstall, &s, Opts::default(), true, "y\n");

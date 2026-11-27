@@ -1,0 +1,134 @@
+{
+ "duration_api_ms": 15666,
+ "stop_reason": "end_turn",
+ "session_id": "e16dee17-2dfb-484e-a445-a6832c2c215f",
+ "total_cost_usd": 0.08375780000000001,
+ "usage": {
+  "input_tokens": 8,
+  "cache_creation_input_tokens": 6282,
+  "cache_read_input_tokens": 66177,
+  "output_tokens": 425,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 6282,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 288,
+    "cache_read_input_tokens": 23842,
+    "cache_creation_input_tokens": 1453,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 1453
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 8,
+   "outputTokens": 425,
+   "cacheReadInputTokens": 66177,
+   "cacheCreationInputTokens": 6282,
+   "webSearchRequests": 0,
+   "costUSD": 0.07202340000000002,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 0,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 6282,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  },
+  "claude-haiku-5-5": {
+   "inputTokens": 14359,
+   "outputTokens": 597,
+   "cacheReadInputTokens": 0,
+   "cacheCreationInputTokens": 0,
+   "webSearchRequests": 1,
+   "costUSD": 0.0117344,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 211,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 0,
+   "canonicalModel": "claude-haiku-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "Rust 1.0 came out in **2015**, on May 15. The Rust team's official \"Announcing Rust 1.0\" blog post is dated that day. That was the release date they had planned. Before it came a 1.0 alpha on January 9, 2015 and a beta on April 3, 2015.\n\nSources:\n- [Announcing Rust 1.0](https://blog.rust-lang.org/2015/05/15/Rust-1.0/)\n- [Rust 1.0: status report and final timeline](https://blog.rust-lang.org/2015/02/13/Final-1.0-timeline/)\n- [Announcing Rust 1.0 Beta](https://blog.rust-lang.org/2015/04/03/Rust-1.0-beta/)\n- [Rust turns three](https://blog.rust-lang.org/2018/05/15/Rust-turns-three/)",
+ "ttft_ms": 3897,
+ "type": "result",
+ "duration_ms": 15910,
+ "uuid": "0c99771e-0db8-4093-a820-c9a2f96736c0",
+ "ttft_stream_ms": 3704,
+ "time_to_request_ms": 203,
+ "first_content_frame_ms": 3704,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 16.9,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "ToolSearch",
+   "input": "select:WebSearch",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "WebSearch",
+   "input": "Rust 1.0 release date",
+   "error": false,
+   "read": true
+  }
+ ],
+ "_score": "right"
+}

@@ -1,0 +1,118 @@
+{
+ "duration_api_ms": 14354,
+ "stop_reason": "end_turn",
+ "session_id": "93ba4e89-9dc7-4f37-87ed-b7e7ae05df97",
+ "total_cost_usd": 0.06594620000000001,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 5319,
+  "cache_read_input_tokens": 55051,
+  "output_tokens": 618,
+  "output_tokens_details": {
+   "thinking_tokens": 47
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 5319,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 293,
+    "cache_read_input_tokens": 20174,
+    "cache_creation_input_tokens": 413,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 413
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 618,
+   "cacheReadInputTokens": 55051,
+   "cacheCreationInputTokens": 5319,
+   "webSearchRequests": 0,
+   "costUSD": 0.06594620000000001,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 47,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 5319,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I searched every module in `calc/` for these names, including other import styles like `from json import ...`. Each answer had exactly one match, apart from (c), which has two.\n\n- **(a)** `DEFAULT_TIMEOUT = 45`, defined at `calc/m03.py:4`.\n- **(b)** `normalize()` is defined only in `calc/m07.py`, and it raises `ValueError(\"empty name\")` when the name is empty (`calc/m07.py:6`).\n- **(c)** Two modules import `json`: `calc/m04.py` and `calc/m11.py`. Both use it for `json.dumps`.\n- **(d)** `LIMIT = 1337` at `calc/m09.py:4`.\n- **(e)** `close_month(rows)` in `calc/m10.py:8` is the only caller of `send_report()`, which is defined in `calc/report.py:4`.",
+ "ttft_ms": 5001,
+ "type": "result",
+ "duration_ms": 15143,
+ "uuid": "f35f902f-3d2b-4fdb-b9e6-f548ce4f7b31",
+ "ttft_stream_ms": 3915,
+ "time_to_request_ms": 510,
+ "first_content_frame_ms": 3916,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 15.7,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "cd calc && ls && grep -n \"DEFAULT_TIMEOUT\\|def normalize\\|ValueError\\|import json\\|^LIMIT\\|LIMIT *=\\|send_report\" *.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "grep -n \"json\\|send_report\\|normalize\\|DEFAULT_TIMEOUT\" *.py; sed -n 1,12p m10.py",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

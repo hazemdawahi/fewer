@@ -170,5 +170,51 @@ code, t = hook("post-bash", chained)
 cv = json.loads(t)["hookSpecificOutput"]["updatedToolOutput"]["stdout"] if t else ""
 ok(cv.startswith("python3 -m unittest -v 2>&1 || true; fewer read calc.py: done; 303 lines saved as r") and cv.endswith(reads_view)
    and "test_case_120 ... FAIL" in cv and len(cv) < len(out) / 5, "a run chained with fewer read: the run shortened, the file whole: %r" % cv[-300:])
+# read-ahead (UserPromptSubmit): what the message names, read before Claude's first reply, as
+# additionalContext under ahead.HEAD's line; a message naming nothing, a slash command, a file
+# the Read rules deny, `ahead = off`: nothing; a test command run only when the rules allow it
+with open(HOME + "/config", "w") as f:
+    f.write("dna = off\nsessions = off\n")
+os.makedirs(PROJ + "/calc", exist_ok=True)
+open(PROJ + "/calc/price.py", "w").write("TAX = 0.08\n\ndef total(p):\n    return round(p * (1 + TAX), 2)\n")
+open(PROJ + "/sales.csv", "w").write("region,cents\neast,100\nwest,250\neast,50\n")
+open(PROJ + "/test_price.py", "w").write("import unittest\nfrom calc.price import total\n\nclass T(unittest.TestCase):\n    def test_total(self):\n        self.assertEqual(total(10), 10.9)\n")
+asked = {"session_id": "s4", "transcript_path": "/dev/null", "cwd": PROJ, "hook_event_name": "UserPromptSubmit", "permission_mode": "default"}
+
+
+def ahead(prompt, e=None):
+    code, t = hook("ahead", dict(asked, prompt=prompt), e=e)
+    try:
+        return code, json.loads(t)["hookSpecificOutput"]["additionalContext"]
+    except (ValueError, KeyError, TypeError):
+        return code, t
+
+
+code, ctx = ahead("What does calc/price.py set TAX to?")
+ok(code == 0 and ctx.startswith("fewer, before your first reply: what your message names") and " read calc/price.py\n== calc/price.py (4 lines)\n1 TAX = 0.08\n" in ctx, "ahead reads a file the message names: %r" % ctx[:400])
+code, ctx = ahead("In sales.csv, the cents for each region?")
+ok(code == 0 and " table sales.csv\n" in ctx and "east" in ctx and "150" in ctx, "ahead gives a table's sums: %r" % ctx[:600])
+for p in ("Hello, how are you?", "/fewer-tokens", "Make a new file calc/new.py"):
+    code, ctx = ahead(p)
+    ok(code == 0 and ctx == "", "ahead gives nothing for %r: %r" % (p, ctx[:200]))
+# the user's Read rules: a file they deny is not read ahead
+os.makedirs(PROJ + "/.claude", exist_ok=True)
+open(PROJ + "/.claude/settings.local.json", "w").write(json.dumps({"permissions": {"deny": ["Read(calc/**)"]}}))
+code, ctx = ahead("What does calc/price.py set TAX to?")
+ok(code == 0 and "1 TAX = 0.08" not in ctx, "ahead reads no file the Read rules deny: %r" % ctx[:400])
+# a failing test: its file and the module it imports; its run only when a rule allows it
+open(PROJ + "/.claude/settings.local.json", "w").write("{}")
+code, ctx = ahead("test_total in test_price.py fails, fix it")
+ok(code == 0 and " read test_price.py calc/price.py\n" in ctx and " run --short --" not in ctx, "ahead reads a failing test and its module, runs nothing no rule allows: %r" % ctx[:500])
+open(PROJ + "/.claude/settings.local.json", "w").write(json.dumps({"permissions": {"allow": ["Bash(python3:*)"]}}))
+code, ctx = ahead("test_total in test_price.py fails, fix it")
+ok(code == 0 and " run --short -- python3 -m unittest -v test_price\n" in ctx and "test_total" in ctx, "ahead runs the failing test when a rule allows it: %r" % ctx[-600:])
+code, ctx = hook("ahead", dict(asked, prompt="test_total in test_price.py fails, fix it", permission_mode="plan"))
+ok(code == 0 and " run --short --" not in ctx, "ahead runs nothing in plan mode: %r" % ctx[-300:])
+os.remove(PROJ + "/.claude/settings.local.json")
+with open(HOME + "/config", "a") as f:
+    f.write("ahead = off\n")
+code, ctx = ahead("What does calc/price.py set TAX to?")
+ok(code == 0 and ctx == "", "ahead = off: nothing: %r" % ctx[:200])
 print("FAILED: %d" % len(fails) if fails else "ALL PASSED")
 sys.exit(1 if fails else 0)

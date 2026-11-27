@@ -1,0 +1,127 @@
+{
+ "duration_api_ms": 13536,
+ "stop_reason": "end_turn",
+ "session_id": "0d4c360f-b6d0-4895-996d-7918305f722d",
+ "total_cost_usd": 0.10346540000000001,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 9514,
+  "cache_read_input_tokens": 65847,
+  "output_tokens": 708,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 9514,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 489,
+    "cache_read_input_tokens": 23493,
+    "cache_creation_input_tokens": 5034,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 5034
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 708,
+   "cacheReadInputTokens": 65847,
+   "cacheCreationInputTokens": 9514,
+   "webSearchRequests": 0,
+   "costUSD": 0.10346540000000001,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 0,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 9514,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [
+  {
+   "tool_name": "PowerShell",
+   "tool_use_id": "toolu_01JLTaUio764epnHjiMiWYrG",
+   "tool_input": {
+    "command": "python3 -m unittest discover -s tests -v 2>&1",
+    "description": "Run the unit test suite"
+   }
+  }
+ ],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I ran the suite: 163 tests, 161 passed, 1 failed and 1 errored. All 160 `test_many` cases and `test_pricing.test_no_discount` passed.\n\n**1. `test_parse.TestParse.test_parse_amount`: ERROR (an exception was raised, not a failed assertion)**\n```\nFile \"tests\\test_parse.py\", line 7, in test_parse_amount\n    self.assertEqual(parse_amount(\"1,234.50\"), 1234.5)\nFile \"calc\\parse.py\", line 5, in parse_amount\n    return float(text.strip())\nValueError: could not convert string to float: '1,234.50'\n```\n`parse_amount` passes the string straight to `float()`, which can't handle the thousands separator (`,`).\n\n**2. `test_pricing.TestPricing.test_discount_rounding`: FAIL**\n```\nFile \"tests\\test_pricing.py\", line 7, in test_discount_rounding\n    self.assertEqual(apply_discount(2.30, 50), 1.15)\nAssertionError: 1.14 != 1.15\n```\n`apply_discount(2.30, 50)` returned `1.14` where the test expects `1.15`. That points to a rounding problem: 2.30 \u00c3\u2014 0.5 in binary floating point comes out just under 1.15, which then rounds down. I didn't open `calc/pricing.py`, so I haven't confirmed exactly how it rounds.\n\nI only ran the tests and didn't change anything.",
+ "ttft_ms": 2672,
+ "type": "result",
+ "duration_ms": 14016,
+ "uuid": "0234d756-a0e5-4fad-8dcb-6c14629ce817",
+ "ttft_stream_ms": 2148,
+ "time_to_request_ms": 210,
+ "first_content_frame_ms": 2155,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 15.2,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "PowerShell",
+   "input": "python3 -m unittest discover -s tests -v 2>&1",
+   "error": true,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T1-claude-2\" && python3 -m unittest discover -s tests -v 2>&1",
+   "error": true,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

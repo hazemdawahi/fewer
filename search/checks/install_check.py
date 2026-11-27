@@ -321,7 +321,7 @@ def check_yes(ctx):
     ok(c.server() == {"scope": "user", "command": ctx.bin, "args": ["mcp"], "env": ["FEWER_HOME=" + c.home]}, "yes: the stub read %r" % c.server())
     # (the MCP server and fewer's changes shown before the one question that covers them,
     # as they are)
-    shown = "fewer will make these changes in Claude Code:\n\n  1. Register fewer's MCP server for all your projects (user scope):\n       %s\n\n  2. Turn fewer on, 87%% fewer tokens in our tests" % shlex.join([c.stub] + add_call(c, ctx.bin))
+    shown = "fewer will make these changes in Claude Code:\n\n  1. Register fewer's MCP server for all your projects (user scope):\n       %s\n\n  2. Turn fewer on, 86%% fewer tokens in our tests" % shlex.join([c.stub] + add_call(c, ctx.bin))
     ok(out.startswith(shown) and ("takes all of this back out. " + chats_said(c) + " " + slash_said(c) + " Register fewer and turn it on (the changes above)? [y/N] ") in flat(out), "yes: the change is shown before the question:\n%s" % out)
     commands = os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "commands")
     ok(SLASH_ON in out and os.path.isdir(commands) and sorted(os.listdir(commands)) == SLASH_FILES and all("disable-model-invocation: true" in open(os.path.join(commands, f)).read() for f in SLASH_FILES), "yes: the slash commands written:\n%s" % out)
@@ -360,7 +360,7 @@ def check_dry_run(ctx):
             asked = out.count("[y/N] ")
         ok(code == 0 and asked == 0, "dry run (%s): exit %r, %d questions" % (run, code, asked))
         # (it changes the file, or makes it when there is none yet)
-        start = "2. Turn fewer on, 87%% fewer tokens in our tests, with the same answers: it %s %s" % ("changes" if os.path.exists(c.settings_file()) else "makes", c.settings_file())
+        start = "2. Turn fewer on, 86%% fewer tokens in our tests, with the same answers: it %s %s" % ("changes" if os.path.exists(c.settings_file()) else "makes", c.settings_file())
         ok(start in flat(out) and chats_said(c) in flat(out), "dry run (%s), the start: %r" % (run, out[:1500]))
         ok(out.endswith('Dry run: nothing was changed. `fewer install` asks "Register fewer and turn it on (the changes above)? [y/N]" and makes them on a yes; `fewer off` takes fewer back out.\n'), "dry run (%s), the end: %r" % (run, out[-200:]))
         ok(("\n       %s\n" % shlex.join([c.stub] + add_call(c, ctx.bin))) in out, "dry run (%s): the command:\n%s" % (run, out))
@@ -396,7 +396,7 @@ def check_already(ctx):
             ok(out.startswith("fewer's MCP server is left as it is: fewer keeps it off (Claude runs fewer's commands instead), and Claude Code neither shows nor adds it then (fewer off shows it again).\n"), "already (%s), fewer on:\n%s" % (run, out))
         ok(c.calls()[n:] == [GET], "already (%s): calls %r" % (run, c.calls()[n:]))
     # (the store's config holds only when the token savers went on: tokens reports before and after it)
-    ok(c.server()["command"] == "/elsewhere/fewer" and re.fullmatch(rb"savers\.on = \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\n(savers\.off = \n)?(savers\.made = settings\.json\n)?(savers\.made_agents = agents\n)?savers\.start = workflows,artifact\nsavers\.lean = lean:agent(,lean:(?:[a-zA-Z_:-]+|allow:Bash\([^()\n]+\)))+\n", c.config() or b"") is not None, "already: something else changed: %r" % c.config())
+    ok(c.server()["command"] == "/elsewhere/fewer" and re.fullmatch(rb"savers\.on = \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\n(savers\.off = \n)?(savers\.made = settings\.json\n)?(savers\.made_agents = agents\n)?savers\.start = (?:skill:[^,\n]+(?:,skill:[^,\n]+)*)?\nsavers\.lean = lean:agent(,lean:(?:[a-zA-Z_:-]+|allow:Bash\([^()\n]+\)))+\n", c.config() or b"") is not None, "already: something else changed: %r" % c.config())
     c.done()
 
 
@@ -582,15 +582,18 @@ def check_savers(ctx):
     post = "FEWER_HOME=%s %s hook post-bash" % (shlex.quote(c.home), shlex.quote(ctx.bin))
     start = "FEWER_HOME=%s %s hook start" % (shlex.quote(c.home), shlex.quote(ctx.bin))
     precompact = "FEWER_HOME=%s %s hook precompact" % (shlex.quote(c.home), shlex.quote(ctx.bin))
-    ok(cfg == {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": post}]}], "SessionStart": [{"hooks": [{"type": "command", "command": start}]}], "PreCompact": [{"hooks": [{"type": "command", "command": precompact}]}]},
-               "autoCompactWindow": 100000, "env": {"CLAUDE_CODE_DISABLE_WORKFLOWS": "1",
-                                       "CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT": "0", "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off", "FEWER_HOME": c.home},
-               "enableArtifact": False, "agent": "fewer-lean", "deniedMcpServers": [{"serverName": "fewer"}],
+    ahead = "FEWER_HOME=%s %s hook ahead" % (shlex.quote(c.home), shlex.quote(ctx.bin))
+    ok(cfg == {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": post}]}], "SessionStart": [{"hooks": [{"type": "command", "command": start}]}], "PreCompact": [{"hooks": [{"type": "command", "command": precompact}]}],
+                         "UserPromptSubmit": [{"hooks": [{"type": "command", "command": ahead}]}]},
+               # (Claude Code's own switches stay the user's: no workflows, Artifact or
+               # session-title switch, 1.2.0)
+               "autoCompactWindow": 100000, "env": {"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT": "0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off", "FEWER_HOME": c.home},
+               "agent": "fewer-lean", "deniedMcpServers": [{"serverName": "fewer"}],
                **({"permissions": {"allow": read_rules(shlex.quote(ctx.bin))}} if read_rules(shlex.quote(ctx.bin)) else {})}, "savers: settings %r" % cfg)
     ok(stat.S_IMODE(os.stat(c.settings_file()).st_mode) == 0o600 and sorted(os.listdir(c.agent_dir("FEWER_CLAUDE_DIR"))) == ["agents", "commands", "settings.json"], "savers: a new file, mode 600, the agent's folder and the slash commands' folder")
     lean = open(os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "agents", "fewer-lean.md")).read()
     ok(lean.startswith("---\nname: fewer-lean\n") and ("`%s changes [REV]`" % shlex.quote(ctx.bin)) in lean and "ending in ` 2>&1 || true`" in lean and "its tools, as usual (ToolSearch loads them)" in lean and "mcp list" not in lean
-       and "\ndisallowedTools: Agent, Task, " in lean and "\ntools:" not in lean.split("\n---\n")[0] and "Change files only with Edit and Write" in lean, "savers: the lean agent's file: %r" % lean[:200])
+       and "\ndisallowedTools: mcp__fewer\n" in lean and "\ntools:" not in lean.split("\n---\n")[0] and "agentType: 'fewer-worker' for every" in lean and "Change files only with Edit and Write" in lean, "savers: the lean agent's file: %r" % lean[:200])
     wf = open(os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "agents", "fewer-lean-workflow.md")).read()
     ok(wf.startswith("---\nname: fewer-lean-workflow\n") and "tools: Bash, Read, Edit, Write, Workflow, Skill\n" in wf and "agentType: 'fewer-worker'" in wf, "savers: the workflow agent's file: %r" % wf[:200])
     wk = open(os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "agents", "fewer-worker.md")).read()
@@ -625,14 +628,14 @@ def check_savers(ctx):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w").write("---\nname: %s\ndescription: %s\n---\nbody\n" % (name, desc))
     code, out, asked = c.tty(["install", "claude"], ["y"])
-    ok(code == 0 and asked == 0 and ", 2 skills listed by name only;" in flat(out), "savers again: %r %d\n%s" % (code, asked, out))
+    ok(code == 0 and asked == 0 and "2 skills listed by name only (each still works)" in flat(out), "savers again: %r %d\n%s" % (code, asked, out))
     cfg = c.settings() or {}
-    ok(cfg.get("skillOverrides") == {"ship": "name-only", "verify": "name-only"} and cfg.get("enableArtifact") is False and cfg.get("agent") == "fewer-lean", "the smaller start: %r" % cfg)
+    ok(cfg.get("skillOverrides") == {"ship": "name-only", "verify": "name-only"} and "enableArtifact" not in cfg and cfg.get("agent") == "fewer-lean", "the smaller start: %r" % cfg)
     # uninstall: the server and the savers under one yes; the settings.json that fewer made is
     # taken away, not left as {}; the copy of the second install's change stays
     code, out, asked = c.tty(["uninstall", "claude"], ["y", "n"])
     ok(code == 0 and asked == 2 and c.server() is None and c.settings() is None, "savers uninstall: %r %d %r\n%s" % (code, asked, c.settings(), out))
-    ok("take out fewer (PostToolUse hook removed, SessionStart hook removed, PreCompact hook removed, CLAUDE_CODE_DISABLE_WORKFLOWS removed, enableArtifact removed, 2 skills listed in full again, agent removed" in out and not any(os.path.exists(os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "agents", f)) for f in ("fewer-lean.md", "fewer-lean-workflow.md", "fewer-worker.md")), "savers uninstall: shown:\n%s" % out)
+    ok("take out fewer (PostToolUse hook removed, SessionStart hook removed, PreCompact hook removed, UserPromptSubmit hook removed, 2 skills listed in full again, agent removed" in out and not any(os.path.exists(os.path.join(c.agent_dir("FEWER_CLAUDE_DIR"), "agents", f)) for f in ("fewer-lean.md", "fewer-lean-workflow.md", "fewer-worker.md")), "savers uninstall: shown:\n%s" % out)
     copies = [n for n in os.listdir(c.agent_dir("FEWER_CLAUDE_DIR")) if n.startswith("settings.json.before-fewer-")]
     ok(len(copies) == 1, "savers uninstall: copies %r" % copies)
     c.done()

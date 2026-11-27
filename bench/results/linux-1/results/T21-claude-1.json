@@ -1,0 +1,164 @@
+{
+ "duration_api_ms": 53444,
+ "stop_reason": "end_turn",
+ "session_id": "5ba2d173-4197-48ce-8e3c-9563e959d664",
+ "total_cost_usd": 0.1477228,
+ "usage": {
+  "input_tokens": 18,
+  "cache_creation_input_tokens": 8909,
+  "cache_read_input_tokens": 159268,
+  "output_tokens": 1291,
+  "output_tokens_details": {
+   "thinking_tokens": 117
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 8909,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 178,
+    "cache_read_input_tokens": 21986,
+    "cache_creation_input_tokens": 322,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 322
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 18,
+   "outputTokens": 1291,
+   "cacheReadInputTokens": 159268,
+   "cacheCreationInputTokens": 8909,
+   "webSearchRequests": 0,
+   "costUSD": 0.12901759999999998,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 117,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 8909,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  },
+  "claude-haiku-5-5": {
+   "inputTokens": 168572,
+   "outputTokens": 3696,
+   "cacheReadInputTokens": 0,
+   "cacheCreationInputTokens": 0,
+   "webSearchRequests": 0,
+   "costUSD": 0.018705199999999998,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 2797,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 0,
+   "canonicalModel": "claude-haiku-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 8,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I got both codes from RFC 9110's table of contents:\n\n- **416 Range Not Satisfiable** (Section 15.5.17)\n- **421 Misdirected Request** (Section 15.5.20)\n\nThe HTML page cut off near the start of Section 15.5 (Client Error 4xx), so I couldn't read the section bodies themselves. I took the headings from the table of contents in the plain-text version (rfc9110.txt). The HTML body also refers to 416 by name elsewhere, such as in the Range and Content-Range sections.",
+ "ttft_ms": 2990,
+ "type": "result",
+ "duration_ms": 54278,
+ "uuid": "2ccce066-4807-4b42-8412-4a2eb2246cc4",
+ "ttft_stream_ms": 2798,
+ "time_to_request_ms": 147,
+ "first_content_frame_ms": 2799,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 54.9,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "ToolSearch",
+   "input": "select:WebFetch",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110.txt",
+   "error": false,
+   "read": true
+  }
+ ],
+ "_score": "right"
+}

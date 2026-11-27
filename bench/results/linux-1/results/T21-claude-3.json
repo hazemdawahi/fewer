@@ -1,0 +1,167 @@
+{
+ "duration_api_ms": 46570,
+ "stop_reason": "end_turn",
+ "session_id": "98d5f6f0-344a-4332-b91b-ac97c97cd561",
+ "total_cost_usd": 0.13625070000000003,
+ "usage": {
+  "input_tokens": 16,
+  "cache_creation_input_tokens": 8613,
+  "cache_read_input_tokens": 137344,
+  "output_tokens": 1249,
+  "output_tokens_details": {
+   "thinking_tokens": 218
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 8613,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 163,
+    "cache_read_input_tokens": 21684,
+    "cache_creation_input_tokens": 328,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 328
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 16,
+   "outputTokens": 1249,
+   "cacheReadInputTokens": 137344,
+   "cacheCreationInputTokens": 8613,
+   "webSearchRequests": 0,
+   "costUSD": 0.1214168,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 218,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 8613,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  },
+  "claude-haiku-5-5": {
+   "inputTokens": 135309,
+   "outputTokens": 2606,
+   "cacheReadInputTokens": 0,
+   "cacheCreationInputTokens": 0,
+   "webSearchRequests": 0,
+   "costUSD": 0.0148339,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 2032,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 0,
+   "canonicalModel": "claude-haiku-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_01MvdmnsAfRTWfjZaLt8x67g",
+   "tool_input": {
+    "command": "curl -s https://www.rfc-editor.org/rfc/rfc9110.txt | grep -nE \"^ *15\\.5\\.(17|20)\\. |^15\\.5\\.(17|20)\"",
+    "description": "Fetch RFC 9110 text and grep status headings"
+   }
+  }
+ ],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 7,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "Both codes are in RFC 9110's 4xx (Client Error) section:\n\n- **416** is Range Not Satisfiable (Section 15.5.17, \"416 Range Not Satisfiable\").\n- **421** is Misdirected Request (Section 15.5.20, \"421 Misdirected Request\").\n\nI read these headings from the plain-text version of the RFC (rfc9110.txt). The HTML page also mentions 416 in other sections, but I couldn't get to its 4xx section from there.",
+ "ttft_ms": 4363,
+ "type": "result",
+ "duration_ms": 47287,
+ "uuid": "7385e5cc-6db5-4554-8fab-b2054456fcb5",
+ "ttft_stream_ms": 4168,
+ "time_to_request_ms": 143,
+ "first_content_frame_ms": 4168,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 47.9,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "ToolSearch",
+   "input": "select:WebFetch",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "Bash",
+   "input": "curl -s https://www.rfc-editor.org/rfc/rfc9110.txt | grep -nE \"^ *15\\.5\\.(17|20)\\. |^15\\.5\\.(17|20)\"",
+   "error": true,
+   "read": false
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110.txt",
+   "error": false,
+   "read": true
+  }
+ ],
+ "_score": "right"
+}

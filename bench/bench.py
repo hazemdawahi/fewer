@@ -3,10 +3,12 @@
 
 The same 9 tasks, in a made-up project, run by Claude Code twice: as it is, and with Fewer. Each
 run counts the tokens Claude Code used (input and cache, every model, Fewer's own helpers too)
-and checks the answer. The only difference between the two setups is Fewer.
+and checks the answer; a web task's answer counts only when the run read the web (WebFetch,
+WebSearch or `fewer web`), not one given from memory. The only difference between the two setups
+is Fewer.
 
   python3 bench/bench.py run WORK [--tasks T1,T3] [--runs 3] [--setups claude,fewer] [--model M]
-  python3 bench/bench.py report WORK
+  python3 bench/bench.py report WORK [WORK...]   (several: their runs together, and each one's)
 
 The same setup for everyone: the model is fixed (Claude Opus 5.5 unless --model), and none of
 your own Claude Code is loaded (no CLAUDE.md, settings, add-ons, skills or claude.ai
@@ -21,7 +23,7 @@ where it stopped. Fewer must be installed (`fewer` on PATH), or name it with FEW
 uses your Claude usage: the whole benchmark is 54 runs (9 tasks, 3 runs each, 2 setups). It
 stops by itself when your plan's usage limit is reached; `run` again later goes on.
 """
-import json, os, platform, random, re, shutil, statistics, subprocess, sys, time
+import glob, json, os, platform, random, re, shutil, statistics, subprocess, sys, time
 
 # the model and the Claude Code version of the numbers on the main page
 MODEL = "claude-opus-5-5"
@@ -256,11 +258,88 @@ def score(t, res, facts):
     its file is unchanged)."""
     if t == "T6":
         return "right" if res.get("_test_passes") and res.get("_test_file_unchanged") else "the fix failed"
+    # (a web task asks for the web: an answer from memory is not one, whatever it says; runs made
+    # without their own Claude Code folder have no record of their calls)
+    if t in WEB and res.get("_calls") is not None and not any(c.get("read") for c in res["_calls"]):
+        return "no page read"
     text = norm(res.get("result") or "")
+    # (a number may be written with commas between its thousands: $326,980.99 is 326980.99)
+    plain = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
     want = facts[t]
-    got = sum(any(norm(a) in text for a in alts) for alts in want)
+    got = sum(any(norm(a) in text or norm(a) in plain for a in alts) for alts in want)
     bad = [w for w in facts.get(t + "_not", []) if norm(w) in text]
     return "right" if got == len(want) and not bad else "%d of %d facts%s" % (got, len(want), ", %d wrong" % len(bad) if bad else "")
+
+
+# a command that runs Fewer's web helper: `fewer web ...`, `/path/to/fewer web ...`, `fewer.exe web`
+FEWER_WEB = re.compile(r"""(?:^|[\s/\\;&|(`'"])fewer(?:\.exe)?['"]?\s+web\b""")
+# read-ahead's line before a page it read: "$ fewer web ..." (Fewer named by its path, or not)
+READ_AHEAD_WEB = re.compile(r"""(?m)^\$ \S*fewer(?:\.exe)? web """)
+
+
+def strings(x):
+    """Every string in a JSON value, at any depth."""
+    if isinstance(x, str):
+        return [x]
+    if isinstance(x, dict):
+        return [s for v in x.values() for s in strings(v)]
+    if isinstance(x, list):
+        return [s for v in x for s in strings(v)]
+    return []
+
+
+def calls_of(res, config):
+    """The run's tool calls, read from its own chats in the runs' Claude Code folder (CONFIG/
+    projects/*/SESSION.jsonl, and its subagents' under SESSION/): each one's tool, what it was
+    given (cut at 300 characters), whether it failed, and whether it read the web (a WebFetch or
+    WebSearch that worked, or a `fewer web` that names what it read). None when no chat is found."""
+    sid = res.get("session_id")
+    main = glob.glob(os.path.join(glob.escape(config), "projects", "*", glob.escape(sid) + ".jsonl")) if sid else []
+    if not main:
+        return None
+    files = main[:1] + sorted(glob.glob(os.path.join(glob.escape(main[0][:-len(".jsonl")]), "**", "*.jsonl"), recursive=True))
+    calls, at = [], {}
+    for fn in files:
+        with open(fn, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                # (Fewer's read-ahead: what a message names, read before the first reply by a
+                # UserPromptSubmit hook; a page it read is named after `fewer web`, with "calls: ")
+                if isinstance(e, dict) and e.get("type") == "attachment" and isinstance(e.get("attachment"), dict):
+                    a = e["attachment"]
+                    if "hook" in str(a.get("type", "")) and a.get("hookEvent", "UserPromptSubmit") == "UserPromptSubmit":
+                        said = "\n".join(strings(a))
+                        if READ_AHEAD_WEB.search(said):
+                            calls.append({"tool": "read-ahead", "input": "fewer web, before the first reply", "error": False, "read": "calls: " in said})
+                    continue
+                content = (e.get("message") or {}).get("content") if isinstance(e, dict) and isinstance(e.get("message"), dict) else None
+                if not isinstance(content, list):
+                    continue
+                for b in content:
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get("type") == "tool_use":
+                        given = b.get("input") if isinstance(b.get("input"), dict) else {}
+                        what = next((given[k] for k in ("command", "url", "query", "file_path", "pattern", "prompt") if isinstance(given.get(k), str)), json.dumps(given))
+                        at[(fn, b.get("id"))] = len(calls)
+                        calls.append({"tool": b.get("name"), "input": what[:300], "error": None, "read": False,
+                                      "_web": b.get("name") == "Bash" and bool(FEWER_WEB.search(what))})
+                    elif b.get("type") == "tool_result" and (fn, b.get("tool_use_id")) in at:
+                        c = calls[at[(fn, b["tool_use_id"])]]
+                        out = b.get("content")
+                        text = out if isinstance(out, str) else " ".join(x.get("text", "") for x in out if isinstance(x, dict)) if isinstance(out, list) else ""
+                        c["error"] = bool(b.get("is_error"))
+                        if c["tool"] in ("WebFetch", "WebSearch"):
+                            c["read"] = not c["error"]
+                        elif c["_web"]:
+                            # (fewer web ends its answer with "calls: " and what it read)
+                            c["read"] = "calls: " in text
+    for c in calls:
+        c.pop("_web", None)
+    return calls
 
 
 def tokens(res):
@@ -328,6 +407,10 @@ def prepare_fewer(dest, store, fewer, claude, web):
     perms = os.path.join(store, "perms.json")
     with open(perms, "w") as f:
         json.dump({"permissions": {"allow": ALLOWED + ["Bash(fewer:*)"]}}, f)
+    # (the same rules in the project's own settings too, where Fewer reads them on every system:
+    # on Windows it cannot see Claude Code's command line; Claude Code holds to both the same way)
+    with open(os.path.join(claude_dir, "settings.local.json"), "w") as f:
+        json.dump({"permissions": {"allow": ALLOWED + ["Bash(fewer:*)"]}}, f)
     run_env = {"PATH": os.path.dirname(fewer) + os.pathsep + os.environ.get("PATH", ""), "FEWER_HOME": store, "FEWER_CLAUDE_BIN": claude,
                "FEWER_HELPER_SETTINGS": perms}
     pack = shutil.which("fewer-pack", path=os.path.dirname(fewer))
@@ -374,7 +457,7 @@ def run(work, argv):
         else:
             die("unknown argument %s" % a)
     if bad := [t for t in tasks if t not in TASKS] + [s for s in setups if s not in SETUPS]:
-        die("unknown task or setup: %s (tasks: %s; setups: claude, fewer)" % (", ".join(bad), ", ".join(TASKS)))
+        die("unknown task or setup: %s (tasks: %s; setups: %s)" % (", ".join(bad), ", ".join(TASKS), ", ".join(SETUPS)))
     claude = shutil.which("claude") or die("Claude Code (claude) is not on PATH")
     fewer = os.environ.get("FEWER_BIN") or shutil.which("fewer")
     if "fewer" in setups and not fewer:
@@ -388,10 +471,15 @@ def run(work, argv):
     facts = json.load(open(os.path.join(work, "facts.json")))
     how = setup_of(work, claude, model)
     print("Claude Code %s, %s, %s" % (how["claude_code"], how["model"], "none of your own Claude Code loaded" if how["clean"] else "your own login and Claude Code setup (no login token given)"), flush=True)
+    return run_all(work, tasks, runs, setups, model, claude, fewer, project, facts)
+
+
+def run_all(work, tasks, runs, setups, model, claude, fewer, project, facts):
     for rep in range(1, runs + 1):
         for ti, t in enumerate(tasks):
             # (the setups take turns going first: neither always runs first or last)
-            order = setups if (rep + ti) % 2 == 0 else setups[::-1]
+            k = (rep + ti) % len(setups)
+            order = setups[k:] + setups[:k]
             for s in order:
                 name = "%s-%s-%d" % (t, s, rep)
                 out = os.path.join(work, "results", name + ".json")
@@ -431,6 +519,10 @@ def run(work, argv):
                     res["_test_file_unchanged"] = open(os.path.join(dest, "tests/test_pricing.py")).read() == open(os.path.join(project, "tests/test_pricing.py")).read()
                 hp = os.path.join(store, "helpers.jsonl")
                 res["_helpers"] = [json.loads(l) for l in open(hp) if l.strip()] if os.path.exists(hp) else []
+                # (what the run did, from its chat in the runs' own Claude Code folder; never
+                # read from your own Claude Code's)
+                own = clean_claude(work).get("CLAUDE_CONFIG_DIR")
+                res["_calls"] = calls_of(res, own) if own else None
                 res["_score"] = score(t, res, facts) if not res.get("error") else "error: %s" % res["error"]
                 os.makedirs(os.path.dirname(out), exist_ok=True)
                 with open(out, "w") as f:
@@ -439,21 +531,52 @@ def run(work, argv):
     return report(work)
 
 
-def report(work):
-    """Each task's median tokens with Claude Code alone and with Fewer, and how many answers
-    were right."""
+def cost(res):
+    """A run's dollars at Claude Code's own list prices (its total_cost_usd), helpers too."""
+    return (res.get("total_cost_usd") or 0) + sum(h.get("cost_usd") or 0 for h in res.get("_helpers") or [])
+
+
+def load(work):
+    """WORK's runs: (task, setup) -> [(tokens, right, dollars)], every answer checked again here
+    against the project's facts (a fix to the check counts for runs made before it)."""
     rd = os.path.join(work, "results")
     if not os.path.isdir(rd):
         die("no results in %s yet: run first" % work)
+    facts = json.load(open(os.path.join(work, "facts.json")))
     got = {}
     for fn in os.listdir(rd):
         if fn.endswith(".json"):
-            t, s, _ = fn[:-5].split("-")
+            # (TASK-SETUP-RUN)
+            t, rest = fn[:-5].split("-", 1)
+            s, _ = rest.rsplit("-", 1)
             res = json.load(open(os.path.join(rd, fn)))
-            got.setdefault((t, s), []).append((tokens(res), res.get("_score") == "right"))
+            right = not res.get("error") and score(t, res, facts) == "right"
+            # (whether a web task's run has the record of its calls the web check reads)
+            checked = t not in WEB or res.get("_calls") is not None
+            got.setdefault((t, s), []).append((tokens(res), right, cost(res), checked))
+    return got
+
+
+def totals(got, x, field=0):
+    """The sums of each task's medians (field 0: tokens, 2: dollars) with Claude Code alone and
+    with setup x, over the tasks both ran."""
+    ts = [t for t in TASKS if got.get((t, x)) and got.get((t, "claude"))]
+    alone = sum(statistics.median(v[field] for v in got[(t, "claude")]) for t in ts)
+    mine = sum(statistics.median(v[field] for v in got[(t, x)]) for t in ts)
+    return alone, mine
+
+
+def report(*works):
+    """Each task's median tokens with Claude Code alone and with Fewer, the dollars, and how many
+    answers were right; given several WORK folders (rounds, systems), all their runs together,
+    and each folder's own result (the range)."""
+    each = [(w, load(w)) for w in works]
+    got = {}
+    for _, g in each:
+        for k, v in g.items():
+            got.setdefault(k, []).extend(v)
     print("\n| Task | Claude Code alone | With Fewer | Fewer tokens |")
     print("|---|--:|--:|--:|")
-    totals = [0, 0]
     right = [0, 0]
     count = [0, 0]
     for t in TASKS:
@@ -461,21 +584,39 @@ def report(work):
         if not a or not f:
             continue
         ma, mf = statistics.median(x[0] for x in a), statistics.median(x[0] for x in f)
-        totals[0] += ma
-        totals[1] += mf
         for i, side in enumerate((a, f)):
             right[i] += sum(x[1] for x in side)
             count[i] += len(side)
         print("| %s | %s | %s | **%d%%** |" % (NAMES[t], "{:,}".format(int(ma)), "{:,}".format(int(mf)), round(100 * (1 - mf / ma))))
-    if totals[0]:
-        print("| **All tasks** | **%s** | **%s** | **%d%%** |" % ("{:,}".format(int(totals[0])), "{:,}".format(int(totals[1])), round(100 * (1 - totals[1] / totals[0]))))
-        print("\nMedians of each task's runs. Right answers: %d of %d with Claude Code alone, %d of %d with Fewer." % (right[0], count[0], right[1], count[1]))
-    sp = os.path.join(work, "setup.json")
-    if os.path.exists(sp):
-        how = json.load(open(sp))
-        print("Claude Code %s, %s, on %s; %s." % (how.get("claude_code"), how.get("model"), how.get("system"), "none of your own Claude Code loaded" if how.get("clean") else "your own login and Claude Code setup were loaded (both setups alike), so your numbers may differ more: a login token (claude setup-token) leaves them out"))
-        if how.get("claude_code") != MEASURED_WITH or how.get("model") != MODEL:
-            print("The main page's numbers are for Claude Code %s and %s: another version or model changes Claude Code's own token use." % (MEASURED_WITH, MODEL))
+    ta, tf = totals(got, "fewer")
+    if ta:
+        print("| **All tasks** | **%s** | **%s** | **%d%%** |" % ("{:,}".format(int(ta)), "{:,}".format(int(tf)), round(100 * (1 - tf / ta))))
+        da, df = totals(got, "fewer", 2)
+        runs = max(count[0], count[1]) // max(1, len([t for t in TASKS if got.get((t, "fewer")) and got.get((t, "claude"))]))
+        print("\nMedians of each task's %d runs. Right answers: %d of %d with Claude Code alone, %d of %d with Fewer." % (runs, right[0], count[0], right[1], count[1]))
+        blind = sum(1 for (t, s), v in got.items() if s in ("claude", "fewer") for x in v if not x[3])
+        if blind:
+            print("%d web runs have no record of their calls (made without a login token, or before the record): whether they read the web is not checked." % blind)
+        if da:
+            print("Dollars at Claude Code's list prices, all tasks: $%.2f alone, $%.2f with Fewer (%d%% less)." % (da, df, round(100 * (1 - df / da))))
+        if len(each) > 1:
+            parts = []
+            for w, g in each:
+                a1, f1 = totals(g, "fewer")
+                if a1:
+                    parts.append("%s %d%%" % (os.path.basename(os.path.normpath(w)), round(100 * (1 - f1 / a1))))
+            print("Each folder on its own: %s." % ", ".join(parts))
+    seen = []
+    for w, _ in each:
+        sp = os.path.join(w, "setup.json")
+        if os.path.exists(sp):
+            how = json.load(open(sp))
+            line = "Claude Code %s, %s, on %s; %s." % (how.get("claude_code"), how.get("model"), how.get("system"), "none of your own Claude Code loaded" if how.get("clean") else "your own login and Claude Code setup were loaded (both setups alike), so your numbers may differ more: a login token (claude setup-token) leaves them out")
+            if line not in seen:
+                seen.append(line)
+                print(line)
+                if how.get("claude_code") != MEASURED_WITH or how.get("model") != MODEL:
+                    print("The main page's numbers are for Claude Code %s and %s: another version or model changes Claude Code's own token use." % (MEASURED_WITH, MODEL))
     return 0
 
 
@@ -484,4 +625,5 @@ if __name__ == "__main__":
         raise SystemExit(__doc__)
     w = os.path.abspath(sys.argv[2])
     os.makedirs(w, exist_ok=True)
-    sys.exit(run(w, sys.argv[3:]) if sys.argv[1] == "run" else report(w))
+    # (report takes several folders: their runs together, and each folder's own result)
+    sys.exit(run(w, sys.argv[3:]) if sys.argv[1] == "run" else report(w, *[os.path.abspath(x) for x in sys.argv[3:]]))

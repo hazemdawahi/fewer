@@ -1,0 +1,105 @@
+{
+ "duration_api_ms": 5493,
+ "stop_reason": "end_turn",
+ "session_id": "a2b651a8-0603-4d28-bfc9-ac8eec6e5127",
+ "total_cost_usd": 0.0617428,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 6371,
+  "cache_read_input_tokens": 12434,
+  "output_tokens": 414,
+  "output_tokens_details": {
+   "thinking_tokens": 106
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 6371,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 414,
+    "cache_read_input_tokens": 12434,
+    "cache_creation_input_tokens": 6371,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 6371
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 414,
+   "cacheReadInputTokens": 12434,
+   "cacheCreationInputTokens": 6371,
+   "webSearchRequests": 0,
+   "costUSD": 0.0617428,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 106,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 6371,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I read all 20 modules whole, in order.\n\n**Functions that divide without first checking for zero.** Each one is `return total / parts` with no `if parts == 0` guard before it:\n- `calc/n02.py`: `share_n02`\n- `calc/n07.py`: `share_n07`\n- `calc/n11.py`: `share_n11`\n- `calc/n15.py`: `share_n15`\n- `calc/n19.py`: `share_n19`\n\nThe `share_nXX` functions in the other 15 modules check for zero before dividing. Each module also has 84 `step_*` functions, which differ only in their numbers and don't divide.\n\n**(a)** `MAX_BATCH = 384` (`calc/n04.py`, line 9).\n\n**(b)** `calc/n13.py` defines `retry_policy()`, at line 9.\n\n**(c)** `close_books()` in `calc/n17.py` calls `archive()`, at line 14.",
+ "ttft_ms": 3001,
+ "type": "result",
+ "duration_ms": 5679,
+ "uuid": "b1752c29-29a9-487b-8994-8a33cbc16707",
+ "ttft_stream_ms": 2003,
+ "time_to_request_ms": 184,
+ "first_content_frame_ms": 2003,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 6.4,
+ "_helpers": [],
+ "_calls": [],
+ "_score": "right"
+}

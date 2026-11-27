@@ -1,0 +1,156 @@
+{
+ "duration_api_ms": 21768,
+ "stop_reason": "end_turn",
+ "session_id": "b4c43fa6-c894-420f-a83f-de893ebd2b31",
+ "total_cost_usd": 0.1032128,
+ "usage": {
+  "input_tokens": 10,
+  "cache_creation_input_tokens": 7073,
+  "cache_read_input_tokens": 99044,
+  "output_tokens": 1339,
+  "output_tokens_details": {
+   "thinking_tokens": 260
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 7073,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 396,
+    "cache_read_input_tokens": 22088,
+    "cache_creation_input_tokens": 253,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 253
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 10,
+   "outputTokens": 1339,
+   "cacheReadInputTokens": 99044,
+   "cacheCreationInputTokens": 7073,
+   "webSearchRequests": 0,
+   "costUSD": 0.1032128,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 260,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 7073,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 5,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I fixed `apply_discount` in `calc/pricing.py:7`, and `test_discount_rounding` now passes. The other test in `tests/test_pricing.py` passes too. I didn't change the test.\n\n**Cause:** the function cut the price off at two decimal places instead of rounding it. In floating point, `2.30 * 0.5 * 100` comes out as `114.99999\u2026`, so `int()` turned it into `114` and the result was `1.14` instead of `1.15`.\n\n**Fix:**\n```python\nreturn round(price * (1 - pct / 100), 2)\n```\n\n**Result:**\n```\ntest_discount_rounding (tests.test_pricing.TestPricing.test_discount_rounding) ... ok\nRan 1 test in 0.000s\nOK\n```\n\npytest isn't installed here, so I ran the tests with `python -m unittest`.\n\nThis also changes results beyond the bug: discounted prices are now rounded to the nearest cent instead of always rounded down. Half-cent values can still go either way because of how floats are stored. If prices must always round half-cents up, the function would need to use `decimal.Decimal` with `ROUND_HALF_UP`.\n\nI haven't committed the change.",
+ "ttft_ms": 3605,
+ "type": "result",
+ "duration_ms": 22342,
+ "uuid": "b3af4b5e-9319-4ef7-8c60-dbb937257d08",
+ "ttft_stream_ms": 2570,
+ "time_to_request_ms": 128,
+ "first_content_frame_ms": 2570,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 22.9,
+ "_test_passes": true,
+ "_test_file_unchanged": true,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "ls -R calc tests | grep -v pyc; cat calc/*.py; cat tests/test_pricing.py; git show 67044bf --stat",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-2 && ls -R calc tests | grep -v pyc; cat calc/*.py; cat tests/test_pricing.py; git show 67044bf --stat",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cat calc/pricing.py; grep -n \"discount_rounding\" -A15 tests/test_pricing.py; head -10 tests/test_pricing.py; git show 67044bf --stat",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-2 && cat calc/pricing.py; grep -n \"discount_rounding\" -A15 tests/test_pricing.py; head -10 tests/test_pricing.py; git show 67044bf --stat",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "sed -i 's|    return int(price \\* (1 - pct / 100) \\* 100) / 100|    return round(price * (1 - pct / 100), 2)|' calc/pricing.py && git diff && python -m pytest tests/test_pricing.py -v 2>&1 | tail -6",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-2 && sed -i 's|    return int(price \\* (1 - pct / 100) \\* 100) / 100|    return round(price * (1 - pct / 100), 2)|' calc/pricing.py && git diff && python -m pytest tests/test_pricing.py -v 2>&1 | tail -6",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "python -m unittest tests.test_pricing.TestPricing.test_discount_rounding -v; python -m unittest tests.test_pricing -v 2>&1 | tail -3",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T6-claude-2 && python -m unittest tests.test_pricing.TestPricing.test_discount_rounding -v; python -m unittest tests.test_pricing -v 2>&1 | tail -3",
+   "error": null,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

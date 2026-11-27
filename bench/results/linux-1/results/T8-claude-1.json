@@ -1,0 +1,130 @@
+{
+ "duration_api_ms": 14120,
+ "stop_reason": "end_turn",
+ "session_id": "9676a24c-e70b-4661-a19d-3c7b72eef3bd",
+ "total_cost_usd": 0.1308084,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 13229,
+  "cache_read_input_tokens": 53162,
+  "output_tokens": 716,
+  "output_tokens_details": {
+   "thinking_tokens": 53
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 13229,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 294,
+    "cache_read_input_tokens": 20154,
+    "cache_creation_input_tokens": 6474,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 6474
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 716,
+   "cacheReadInputTokens": 53162,
+   "cacheCreationInputTokens": 13229,
+   "webSearchRequests": 0,
+   "costUSD": 0.1308084,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 53,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 13229,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I searched every module in `calc/` and read the ones that matter in full:\n\n**(a)** `DEFAULT_TIMEOUT = 45`. It's in `calc/m03.py:4`.\n\n**(b)** `calc/m07.py`. Its `normalize(name)` raises `ValueError(\"empty name\")` when `name` is empty (`calc/m07.py:6`). No other module in `calc/` defines `normalize()`.\n\n**(c)** Two modules import `json`: `calc/m04.py` and `calc/m11.py`. Both use it for `json.dumps`.\n\n**(d)** `LIMIT = 1337`, at `calc/m09.py:4`.\n\n**(e)** `close_month(rows)` in `calc/m10.py:7-8`. It imports `send_report` from `calc.report` and returns `send_report(rows)`. Nothing else in `calc/` calls it.",
+ "ttft_ms": 4859,
+ "type": "result",
+ "duration_ms": 14517,
+ "uuid": "e62c2335-6685-4c36-b322-be12972525e3",
+ "ttft_stream_ms": 3436,
+ "time_to_request_ms": 142,
+ "first_content_frame_ms": 3436,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 15.3,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "ls calc && grep -rn \"DEFAULT_TIMEOUT\\|def normalize\\|ValueError\\|import json\\|^LIMIT\\|send_report\\|^from json\" calc/*.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T8-claude-1 && ls calc && grep -rn \"DEFAULT_TIMEOUT\\|def normalize\\|ValueError\\|import json\\|^LIMIT\\|send_report\\|^from json\" calc/*.py",
+   "error": null,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cat calc/m03.py calc/m07.py calc/m09.py calc/m10.py calc/report.py; grep -rn \"normalize\\|json\\|LIMIT\\|TIMEOUT\\|send_report\\|importlib\\|__import__\" calc/*.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T8-claude-1 && cat calc/m03.py calc/m07.py calc/m09.py calc/m10.py calc/report.py; grep -rn \"normalize\\|json\\|LIMIT\\|TIMEOUT\\|send_report\\|importlib\\|__import__\" calc/*.py",
+   "error": null,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

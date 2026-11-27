@@ -1,0 +1,166 @@
+{
+ "duration_api_ms": 19804,
+ "stop_reason": "end_turn",
+ "session_id": "0a0d8d3a-e944-4a55-b2a3-f3f724a7dab6",
+ "total_cost_usd": 0.13164720000000002,
+ "usage": {
+  "input_tokens": 8,
+  "cache_creation_input_tokens": 11621,
+  "cache_read_input_tokens": 90236,
+  "output_tokens": 1030,
+  "output_tokens_details": {
+   "thinking_tokens": 147
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 11621,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 378,
+    "cache_read_input_tokens": 24090,
+    "cache_creation_input_tokens": 6544,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 6544
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 8,
+   "outputTokens": 1030,
+   "cacheReadInputTokens": 90236,
+   "cacheCreationInputTokens": 11621,
+   "webSearchRequests": 0,
+   "costUSD": 0.13164720000000002,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 147,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 11621,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 7,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I searched all 37 files in `calc/` for each name and opened `m03`, `m07` and `m10` to check the matches.\n\n**(a)** `DEFAULT_TIMEOUT = 45`, defined in `calc/m03.py:4`. No other file defines or reassigns it.\n\n**(b)** `calc/m07.py` is the only module with a `normalize()`. It raises `ValueError(\"empty name\")` when the name is empty (`calc/m07.py:4-6`).\n\n**(c)** Two modules import `json`: `calc/m04.py` and `calc/m11.py`. No module uses `from json import ...`.\n\n**(d)** `LIMIT = 1337` (`calc/m09.py:4`).\n\n**(e)** `close_month(rows)` in `calc/m10.py:7-8` calls `send_report()`, which it imports from `calc.report`. Nothing else in `calc/` calls it.",
+ "ttft_ms": 4263,
+ "type": "result",
+ "duration_ms": 20190,
+ "uuid": "6ceac308-fd1f-4df9-af18-09cb0eacee00",
+ "ttft_stream_ms": 3980,
+ "time_to_request_ms": 214,
+ "first_content_frame_ms": 3980,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 21.1,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Glob",
+   "input": "calc/*.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Grep",
+   "input": "DEFAULT_TIMEOUT|def normalize|ValueError|import json|from json|^LIMIT|LIMIT\\s*=|send_report",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m10.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m03.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m07.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Grep",
+   "input": "import|normalize|TIMEOUT|LIMIT",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m10.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m03.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Read",
+   "input": "D:\\a\\_temp\\bench\\runs\\T8-claude-1\\calc\\m07.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Grep",
+   "input": "import|normalize|TIMEOUT|LIMIT",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

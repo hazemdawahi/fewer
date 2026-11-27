@@ -1,0 +1,118 @@
+{
+ "duration_api_ms": 10318,
+ "stop_reason": "end_turn",
+ "session_id": "b932b8d7-7d16-4656-b1e1-93c3a8a7b558",
+ "total_cost_usd": 0.0943898,
+ "usage": {
+  "input_tokens": 4,
+  "cache_creation_input_tokens": 9336,
+  "cache_read_input_tokens": 34829,
+  "output_tokens": 636,
+  "output_tokens_details": {
+   "thinking_tokens": 32
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 9336,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 514,
+    "cache_read_input_tokens": 19561,
+    "cache_creation_input_tokens": 5043,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 5043
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 4,
+   "outputTokens": 636,
+   "cacheReadInputTokens": 34829,
+   "cacheCreationInputTokens": 9336,
+   "webSearchRequests": 0,
+   "costUSD": 0.0943898,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 32,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 9336,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 2,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "163 tests ran: 161 passed, 1 failed and 1 errored.\n\n**1. `test_parse_amount` (`test_parse.TestParse`), ERROR**\n```\nFile \"tests/test_parse.py\", line 7, in test_parse_amount\n    self.assertEqual(parse_amount(\"1,234.50\"), 1234.5)\nFile \"calc/parse.py\", line 5, in parse_amount\n    return float(text.strip())\nValueError: could not convert string to float: '1,234.50'\n```\n`parse_amount` hands the string straight to `float()`, which rejects the thousands-separator comma. It raises an exception, so the test never gets as far as checking the result.\n\n**2. `test_discount_rounding` (`test_pricing.TestPricing`), FAIL**\n```\nFile \"tests/test_pricing.py\", line 7, in test_discount_rounding\n    self.assertEqual(apply_discount(2.30, 50), 1.15)\nAssertionError: 1.14 != 1.15\n```\n`apply_discount(2.30, 50)` returned `1.14` where the test expects `1.15`. That points to a float rounding or truncation problem: 2.30 \u00d7 0.5 is stored as roughly 1.1499999\u2026, which comes out as 1.14. I haven't opened `calc/pricing.py` to confirm how it rounds.\n\nAll 160 `test_many` cases and `test_pricing.test_no_discount` passed. I didn't change any files.",
+ "ttft_ms": 2907,
+ "type": "result",
+ "duration_ms": 10728,
+ "uuid": "29d5dc23-ffc7-4bec-b7f6-33524aabc327",
+ "ttft_stream_ms": 2127,
+ "time_to_request_ms": 146,
+ "first_content_frame_ms": 2128,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 11.4,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "python3 -m unittest discover -s tests -v 2>&1",
+   "error": true,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T1-claude-2 && python3 -m unittest discover -s tests -v 2>&1",
+   "error": null,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

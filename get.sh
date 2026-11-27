@@ -27,6 +27,8 @@ case "$os" in
         yes=0
         for a in "$@"; do [ "$a" = --yes ] && yes=1; done
         command -v powershell >/dev/null 2>&1 || die "on Windows, run this in PowerShell: irm https://github.com/$repo/releases/latest/download/install.ps1 | iex"
+        # (Windows PowerShell with its own module path, not one PowerShell 7 passed down)
+        unset PSModulePath
         FEWER_YES=$yes exec powershell -NoProfile -ExecutionPolicy Bypass -Command "irm $base/install.ps1 | iex; exit \$LASTEXITCODE"
         ;;
 esac

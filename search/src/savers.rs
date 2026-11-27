@@ -5,6 +5,9 @@
 //!   output is saved (hook.rs); the command itself runs as always, with the user's own approvals;
 //! - a SessionStart hook, `<fewer> hook start`: the start card in new, resumed, cleared
 //!   and compacted sessions;
+//! - a UserPromptSubmit hook, `<fewer> hook ahead`: read-ahead, what a message names (files, a
+//!   table, the last commit, a web page, a test run the user's rules allow) read and run before
+//!   Claude's first reply (ahead.rs);
 //! - `autoCompactWindow` (the setting Claude Code's /autocompact writes): long conversations
 //!   compacted earlier. Claude Code compacts at the window less 33,000 tokens (20,000 kept for
 //!   the reply, 13,000 for the summary; its code, version 2.1.287), and takes 100,000 at least.
@@ -35,8 +38,8 @@ pub const WINDOW_KEY: &str = "autoCompactWindow";
 /// How far below the window Claude Code compacts (20,000 for the reply, 13,000 the summary).
 pub const BELOW: u64 = 33_000;
 
-/// Our two hooks: (event, matcher, the argument after `hook`).
-const HOOKS: [(&str, Option<&str>, &str); 3] = [("PostToolUse", Some("Bash"), "post-bash"), ("SessionStart", None, "start"), ("PreCompact", None, "precompact")];
+/// Our hooks: (event, matcher, the argument after `hook`).
+const HOOKS: [(&str, Option<&str>, &str); 4] = [("PostToolUse", Some("Bash"), "post-bash"), ("SessionStart", None, "start"), ("PreCompact", None, "precompact"), ("UserPromptSubmit", None, "ahead")];
 
 /// A word as a shell reads it back: quoted when it needs it. On Windows a Windows path (a
 /// drive or a `\` in it) is written with `/` in double quotes, which Claude Code's two shells
@@ -306,7 +309,9 @@ mod tests {
         let own = json::parse(br#"{"agent":"my-agent"}"#).unwrap();
         let plan = lean_plan(&own, Some("/s"));
         assert!(!plan.iter().any(|p| ["agent", "deny-own"].contains(&p.as_str())), "{plan:?}");
-        assert!(plan.iter().any(|p| p == "env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE"), "{plan:?}");
+        assert!(plan.iter().any(|p| p == "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER"), "{plan:?}");
+        // (the session titles are the developer's own switch: never set)
+        assert!(!plan.iter().any(|p| p == "env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE"), "{plan:?}");
         // (no agent of their own: all of it; every add-on stays on but fewer's own)
         let plan = lean_plan(&Json::Obj(Vec::new()), Some("/s"));
         assert!(["agent", "deny-own"].iter().all(|k| plan.iter().any(|p| p == k)), "{plan:?}");
@@ -314,18 +319,21 @@ mod tests {
     }
 
     #[test]
-    fn the_lean_agent_keeps_claude_codes_file_tools_and_the_add_ons() {
+    fn the_lean_agent_keeps_claude_codes_tools_and_the_add_ons() {
         // (the main agent names what it leaves out: then Claude Code gives it the add-ons' tools,
         // which a `tools` list takes only by server name; the probes of 2026-11-26, 2.1.332)
         let main = lean_agent_text("fewer");
-        assert!(main.contains("\ndisallowedTools: Agent, Task, ") && !main.contains("\ntools:"), "{main}");
-        for kept in ["Bash", "Read", "Edit", "Write", "ToolSearch", "ListMcpResourcesTool", "ReadMcpResourceTool", "McpTaskCheck"] {
+        assert!(main.contains("\ndisallowedTools: mcp__fewer\n") && !main.contains("\ntools:"), "{main}");
+        // (every one of Claude Code's own tools as the developer has it: "the switch belongs to the
+        // user", 2026-11-26; only fewer's own server's tools left out)
+        for kept in ["Bash", "Read", "Edit", "Write", "ToolSearch", "Agent", "Workflow", "Skill", "Glob", "Grep", "WebFetch", "WebSearch", "AskUserQuestion", "TodoWrite", "TaskCreate", "EnterPlanMode", "ExitPlanMode", "Artifact", "NotebookEdit"] {
             assert!(!LEAN_LEAVES_OUT.split(", ").any(|t| t == kept), "{kept} is left out");
         }
-        for out in ["Glob", "Grep", "WebFetch", "WebSearch", "Skill", "Workflow", "NotebookEdit", "AskUserQuestion", "TaskCreate", "mcp__fewer"] {
-            assert!(LEAN_LEAVES_OUT.split(", ").any(|t| t == out), "{out} is not left out");
-        }
+        assert_eq!(LEAN_LEAVES_OUT, "mcp__fewer");
         assert!(!main.contains("mcp__*"), "every add-on but fewer's own stays: {main}");
+        // (the agents it starts are lean; a tool the user turned off stays off)
+        assert!(main.contains("subagent_type 'fewer-worker'") && main.contains("agentType: 'fewer-worker' for every"), "{main}");
+        assert!(main.contains("A tool the user turned off is off"), "{main}");
         // (every file change through Edit and Write: rewind and the permission rules cover it)
         assert!(main.contains("Change files only with Edit and Write, never with python3 or the shell"), "{main}");
         assert!(main.contains("ToolSearch loads them") && !main.contains("not with fewer on"), "{main}");
@@ -341,17 +349,18 @@ mod tests {
         // an early version's record and settings: the add-ons off in four ways
         let v1 = "lean:agent,lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:connectors,lean:deny-web,lean:allow-none,lean:window";
         let (old, kept) = retired_parts(v1);
-        assert_eq!(old, "lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:connectors,lean:deny-web,lean:allow-none");
-        assert_eq!(kept, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:window");
+        // (the session titles too, since 1.2.0)
+        assert_eq!(old, "lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:connectors,lean:deny-web,lean:allow-none");
+        assert_eq!(kept, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:window");
         let mut s = json::parse(br#"{"model":"opus","env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"false","CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS":"1","CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH":"1","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","disableClaudeAiConnectors":true,"deniedMcpServers":[{"serverUrl":"https://*"}],"allowedMcpServers":[{"serverName":"fewer-10x-none"}],"autoCompactWindow":100000}"#).unwrap();
         assert!(hides_own_server(&s));
         let said = remove_lean(&mut s, &old);
-        assert_eq!(said.len(), 6, "{said:?}");
+        assert_eq!(said.len(), 7, "{said:?}");
         // then this version's plan: only fewer's own server off
         assert_eq!(lean_plan(&s, Some("/w/store")), ["deny-own"]);
         let rec = add_lean(&mut s, &["deny-own".to_string()], Some("/w/store"), false).unwrap();
         assert_eq!(rec, "lean:deny-own");
-        assert_eq!(s.to_string(), r#"{"model":"opus","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","autoCompactWindow":100000,"deniedMcpServers":[{"serverName":"fewer"}]}"#);
+        assert_eq!(s.to_string(), r#"{"model":"opus","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","autoCompactWindow":100000,"deniedMcpServers":[{"serverName":"fewer"}]}"#);
         assert!(hides_own_server(&s) && lean_plan(&s, Some("/w/store")).is_empty());
         // a value the developer changed since an early version wrote it is theirs: kept
         let mut t = json::parse(br#"{"env":{"CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH":"500"}}"#).unwrap();
@@ -389,6 +398,7 @@ mod tests {
             "PostToolUse hook added: /opt/fewer/fewer hook post-bash",
             "SessionStart hook added: /opt/fewer/fewer hook start",
             "PreCompact hook added: /opt/fewer/fewer hook precompact",
+            "UserPromptSubmit hook added: /opt/fewer/fewer hook ahead",
             "autoCompactWindow = 120000 added (compacts past about 87,000 tokens)",
         ]);
         let t = s.to_string();
@@ -398,8 +408,8 @@ mod tests {
         // a second install adds nothing again
         let again = add(&mut s, None, ME).unwrap();
         assert!(again[0].starts_with("PostToolUse hook there already") && again[1].starts_with("SessionStart hook there already"), "{again:?}");
-        assert!(again[2].starts_with("PreCompact hook there already"), "{again:?}");
-        assert_eq!(again[3], "autoCompactWindow kept as you set it: 120000");
+        assert!(again[2].starts_with("PreCompact hook there already") && again[3].starts_with("UserPromptSubmit hook there already"), "{again:?}");
+        assert_eq!(again[4], "autoCompactWindow kept as you set it: 120000");
         assert_eq!(s.to_string(), t);
         // fewer moved: our hooks follow it, nothing is added twice
         let moved = add(&mut s, None, "/new place/fewer").unwrap();
@@ -411,12 +421,12 @@ mod tests {
         assert_eq!(crate::hook::pipelines("FEWER_HOME='/w/my store' /opt/fewer/fewer hook start"), [vec![vec!["FEWER_HOME=/w/my store", "/opt/fewer/fewer", "hook", "start"]]]);
         // uninstall: ours away (wherever fewer is), the developer's own hook kept
         let gone = remove(&mut s, true);
-        assert_eq!(gone, ["PostToolUse hook removed", "SessionStart hook removed", "PreCompact hook removed", "autoCompactWindow removed"]);
+        assert_eq!(gone, ["PostToolUse hook removed", "SessionStart hook removed", "PreCompact hook removed", "UserPromptSubmit hook removed", "autoCompactWindow removed"]);
         assert_eq!(s.to_string(), theirs);
         assert!(!present(&s));
         // a window the developer set is theirs: kept by add and by remove
         let mut w = json::parse(br#"{"autoCompactWindow":300000}"#).unwrap();
-        assert_eq!(add(&mut w, None, ME).unwrap()[3], "autoCompactWindow kept as you set it: 300000");
+        assert_eq!(add(&mut w, None, ME).unwrap()[4], "autoCompactWindow kept as you set it: 300000");
         // a window an earlier version set (150000) with its hooks is taken back as ours; the same
         // value alone, or under fewer's record (window_by_value false), is the developer's
         let mut old = Json::Obj(Vec::new());
@@ -495,15 +505,16 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------------------------
-// A smaller start (a quality check: a smaller start used 3.8 times
-// fewer tokens with the same answers). Every reply re-reads Claude Code's start; these three
-// parts of it are turned off or shortened at the developer's yes, and only what fewer put there
-// is taken back by uninstall (the store's config `savers.start` lists it):
-// - workflows (multi-agent runs; ultracode needs them): env CLAUDE_CODE_DISABLE_WORKFLOWS = 1;
-// - the Artifact tool: enableArtifact = false;
+// A smaller start. Every reply re-reads Claude Code's start; one part of it is shortened at the
+// developer's yes, and only what fewer put there is taken back by uninstall (the store's config
+// `savers.start` lists it):
 // - the skills in Claude Code's folder (skills/**/SKILL.md) listed by name only, without their
 //   descriptions: skillOverrides.<name> = "name-only" (each still works, /name still types;
 //   Claude Code does not apply overrides to plugins' skills, so those are left as they are).
+// Claude Code's own switches are the developer's (the founder, 2026-11-26: "the switch belongs to
+// the user"): versions before 1.2.0 also turned workflows off (env CLAUDE_CODE_DISABLE_WORKFLOWS =
+// 1) and the Artifact tool (enableArtifact = false); an update takes those back (RETIRED_START),
+// only where they are still at fewer's own values.
 
 /// A skill found in Claude Code's folder: its name and the length of its description.
 #[derive(Clone, Debug, PartialEq)]
@@ -546,30 +557,29 @@ pub fn skills_found(claude_dir: &Path) -> Vec<Skill> {
 
 pub const WORKFLOWS_ENV: &str = "CLAUDE_CODE_DISABLE_WORKFLOWS";
 
-/// What a smaller start would change in `settings` now (parts already as the developer set
-/// them are left out): (workflows off, Artifact off, the skills to list by name only).
-pub fn start_plan(settings: &Json, skills: &[Skill]) -> (bool, bool, Vec<String>) {
-    let env_has = settings.get("env").and_then(|e| e.get(WORKFLOWS_ENV)).is_some();
-    let artifact_set = settings.get("enableArtifact").is_some();
+/// The parts of a smaller start that versions before 1.2.0 wrote and this one takes back by
+/// itself (`fewer install`, `fewer update`, `fewer on`): workflows and the Artifact tool off.
+pub const RETIRED_START: [&str; 2] = ["workflows", "artifact"];
+
+/// The parts of `record` (savers.start) this version no longer writes (RETIRED_START), and the
+/// rest: (retired, kept), each a record.
+pub fn retired_start(record: &str) -> (String, String) {
+    let (old, kept): (Vec<&str>, Vec<&str>) = record.split(',').filter(|p| !p.is_empty()).partition(|p| RETIRED_START.contains(p));
+    (old.join(","), kept.join(","))
+}
+
+/// What a smaller start would change in `settings` now: the skills to list by name only (those
+/// the developer set an override for are left out).
+pub fn start_plan(settings: &Json, skills: &[Skill]) -> Vec<String> {
     let overrides = settings.get("skillOverrides");
-    let names = skills.iter().filter(|s| overrides.and_then(|o| o.get(&s.name)).is_none()).map(|s| s.name.clone()).collect();
-    (!env_has, !artifact_set, names)
+    skills.iter().filter(|s| overrides.and_then(|o| o.get(&s.name)).is_none()).map(|s| s.name.clone()).collect()
 }
 
 /// Make the start smaller as planned; the record of what was put there (for `savers.start`).
-pub fn add_start(settings: &mut Json, workflows: bool, artifact: bool, skills: &[String]) -> Result<String, String> {
+pub fn add_start(settings: &mut Json, skills: &[String]) -> Result<String, String> {
     let mut after = settings.clone();
     let Json::Obj(top) = &mut after else { return Err("it does not hold a JSON object".into()) };
     let mut record = Vec::new();
-    if workflows {
-        let Json::Obj(env) = field(top, "env", Json::Obj(Vec::new())) else { return Err("its \"env\" is not an object".into()) };
-        env.push((WORKFLOWS_ENV.to_string(), Json::from("1")));
-        record.push("workflows".to_string());
-    }
-    if artifact {
-        top.push(("enableArtifact".to_string(), Json::Bool(false)));
-        record.push("artifact".to_string());
-    }
     if !skills.is_empty() {
         let Json::Obj(o) = field(top, "skillOverrides", Json::Obj(Vec::new())) else { return Err("its \"skillOverrides\" is not an object".into()) };
         for n in skills {
@@ -657,16 +667,17 @@ mod start_tests {
             Skill { name: "plain".into(), description: 0 },
             Skill { name: "verify".into(), description: 32 },
         ]);
-        // the developer's own override and env value stay theirs
+        // the developer's own override and env value stay theirs; Claude Code's own switches
+        // (workflows, the Artifact tool) are not touched
         let theirs = r#"{"env":{"A":"1"},"skillOverrides":{"verify":"off"}}"#;
         let mut s = json::parse(theirs.as_bytes()).unwrap();
-        let (wf, art, names) = start_plan(&s, &skills);
-        assert_eq!((wf, art, names.clone()), (true, true, vec!["docx".to_string(), "plain".to_string()]));
-        let record = add_start(&mut s, wf, art, &names).unwrap();
-        assert_eq!(record, "workflows,artifact,skill:docx,skill:plain");
-        assert_eq!(s.to_string(), r#"{"env":{"A":"1","CLAUDE_CODE_DISABLE_WORKFLOWS":"1"},"skillOverrides":{"verify":"off","docx":"name-only","plain":"name-only"},"enableArtifact":false}"#);
+        let names = start_plan(&s, &skills);
+        assert_eq!(names, ["docx", "plain"]);
+        let record = add_start(&mut s, &names).unwrap();
+        assert_eq!(record, "skill:docx,skill:plain");
+        assert_eq!(s.to_string(), r#"{"env":{"A":"1"},"skillOverrides":{"verify":"off","docx":"name-only","plain":"name-only"}}"#);
         // nothing left to do a second time
-        assert_eq!(start_plan(&s, &skills), (false, false, Vec::new()));
+        assert!(start_plan(&s, &skills).is_empty());
         // a skill the developer changed since is theirs now: kept
         if let Json::Obj(top) = &mut s
             && let Some((_, Json::Obj(o))) = top.iter_mut().find(|(k, _)| k == "skillOverrides")
@@ -674,13 +685,23 @@ mod start_tests {
             o[2].1 = Json::from("off");
         }
         let said = remove_start(&mut s, &record);
-        assert_eq!(said, ["CLAUDE_CODE_DISABLE_WORKFLOWS removed", "enableArtifact removed", "1 skills listed in full again"]);
+        assert_eq!(said, ["1 skills listed in full again"]);
         assert_eq!(s.to_string(), r#"{"env":{"A":"1"},"skillOverrides":{"verify":"off","plain":"off"}}"#);
         // an empty start: everything added, everything taken back
         let mut e = Json::Obj(Vec::new());
-        let r = add_start(&mut e, true, true, &["x".to_string()]).unwrap();
+        let r = add_start(&mut e, &["x".to_string()]).unwrap();
         remove_start(&mut e, &r);
         assert_eq!(e.to_string(), "{}");
+        // a version before 1.2.0 turned workflows and the Artifact tool off: an update takes
+        // fewer's own values back (the developer's own values stay), and they leave the record
+        assert_eq!(retired_start("workflows,artifact,skill:docx"), ("workflows,artifact".to_string(), "skill:docx".to_string()));
+        assert_eq!(retired_start("skill:docx"), (String::new(), "skill:docx".to_string()));
+        let mut old = json::parse(br#"{"env":{"A":"1","CLAUDE_CODE_DISABLE_WORKFLOWS":"1"},"enableArtifact":false}"#).unwrap();
+        assert_eq!(remove_start(&mut old, "workflows,artifact"), ["CLAUDE_CODE_DISABLE_WORKFLOWS removed", "enableArtifact removed"]);
+        assert_eq!(old.to_string(), r#"{"env":{"A":"1"}}"#);
+        let mut theirs_now = json::parse(br#"{"env":{"CLAUDE_CODE_DISABLE_WORKFLOWS":"0"},"enableArtifact":true}"#).unwrap();
+        assert!(remove_start(&mut theirs_now, "workflows,artifact").is_empty());
+        assert_eq!(theirs_now.to_string(), r#"{"env":{"CLAUDE_CODE_DISABLE_WORKFLOWS":"0"},"enableArtifact":true}"#);
         fs::remove_dir_all(&d).unwrap();
     }
 }
@@ -700,17 +721,17 @@ mod start_tests {
 // normal. The agent names the tools it leaves out (`disallowedTools`) rather than the ones it
 // keeps: only then does Claude Code give it the add-ons' tools (a `tools` list takes an add-on
 // only by its server's name, never mcp__*; read from its code and probed, 2.1.332), and
-// ToolSearch loads one when a job needs it. Every feature stays, at almost no cost a step,
-// loaded only when a job needs it (helpers, workflows and skills all keep working, with any
-// number of agents):
-// - skills: `fewer skill NAME` prints one's instructions;
-// - helpers: `fewer helper "<job>"`, a lean Claude Code session of its own, as many at once as
-//   wanted, with no add-ons (--strict-mcp-config: their instructions would be re-read at every
-//   step of every helper, and a helper's job is files and commands);
-// - workflows: `fewer workflow "<job>"`, a session of fewer's second agent,
-//   fewer-lean-workflow, the only one with the Workflow tool, whose scripts give every agent()
-//   fewer-worker as its type: Claude Code's own workflow agents get every tool and a long start,
-//   and nothing but a script's agentType changes that (read from its code, 2.1.287).
+// ToolSearch loads one when a job needs it. Since 1.2.0 it leaves out none of Claude Code's own
+// (the founder, 2026-11-26: "the switch belongs to the user"): workflows, subagents, skills, plan
+// mode, the to-do list and the rest are as the developer has them, on or off. fewer makes the
+// agents it starts lean, and keeps its cheaper ways first:
+// - subagents and workflows: the rules give every agent fewer-worker as its type (the Agent
+//   tool's subagent_type, a Workflow script's agentType): Claude Code's own workflow agents get
+//   every tool and a long start, and nothing but a script's agentType changes that (read from its
+//   code, 2.1.287);
+// - skills: `fewer skill NAME` prints only the parts of one a job needs;
+// - helpers: `fewer helper "<job>"`, and workflows: `fewer workflow "<job>"` (fewer's second agent,
+//   fewer-lean-workflow), stay as commands, for a terminal and for earlier versions' habits.
 // Only fewer's own MCP server is off with fewer on (a `deniedMcpServers` entry): its tools are
 // fewer's commands, which the lean agents run, and its instructions would cost every step about
 // 600 tokens. CLAUDE.md files stay: the developer's own rules keep applying.
@@ -724,41 +745,35 @@ pub const WORKER_AGENT: &str = "fewer-worker";
 /// How the main session's agent starts its rules, and how a worker's start.
 const MAIN_WHO: &str = "You are Claude Code, working in the user's repository.";
 const WORKER_WHO: &str = "You are a helper of Claude Code doing one job in the user's repository; answer only what the job asks.";
-/// The built-in tools the main session's agent leaves out (its `disallowedTools`): everything but
-/// Bash, Read, Edit, Write, ToolSearch and the add-ons' own (their resources, their background
-/// tasks). Claude Code's tool names in 2.1.287 and 2.1.332, in -p and in its editors' sessions; a
-/// name a version does not have is passed over. fewer's own MCP server's tools too, should its
-/// server run all the same (`deny_own` below keeps it off).
-pub const LEAN_LEAVES_OUT: &str = "Agent, Task, AskUserQuestion, BashOutput, KillShell, CronCreate, CronDelete, CronList, DesignSync, \
-EnterPlanMode, ExitPlanMode, EnterWorktree, ExitWorktree, Glob, Grep, LS, LSP, ListAgents, Monitor, MultiEdit, NotebookEdit, NotebookRead, \
-PowerShell, PushNotification, RemoteTrigger, ReportFindings, ScheduleWakeup, SendMessage, SendUserFile, Skill, SlashCommand, TaskCreate, \
-TaskGet, TaskList, TaskOutput, TaskStop, TaskUpdate, TodoWrite, WebFetch, WebSearch, Workflow, Artifact, ArtifactCheck, ArtifactComments, \
-ArtifactData, ReadNotifications, FetchInboxMessage, SendToProject, SendToProjectContext, mcp__fewer";
+/// What the main session's agent leaves out (its `disallowedTools`): only fewer's own MCP
+/// server's tools, should its server run all the same (`deny_own` below keeps it off). Every other
+/// tool comes as the developer has it in Claude Code, on or off (the founder, 2026-11-26: "the
+/// switch belongs to the user"); fewer's rules make the agents it starts lean. Versions before
+/// 1.2.0 left most built-in tools out (the Agent, Workflow, Skill, web, plan-mode and to-do tools).
+pub const LEAN_LEAVES_OUT: &str = "mcp__fewer";
 /// The tools of a worker (a helper's or a workflow agent's): no add-ons (`fewer helper` starts
 /// its session with none).
 pub const WORKER_TOOLS: &str = "Bash, Read, Edit, Write";
-/// The environment of fewer (only where the developer set nothing). Read from Claude Code
-/// 2.1.287 and measured (2026-11-24): the commit lines' note moved into the Bash tool's text
-/// (ATTRIBUTION_ANNOUNCEMENT=0: ~180 tokens a step, the lines still written), no session-title
-/// side call (~900 tokens a session; the session list shows the first message instead), no token
-/// countdown note after each step.
-pub const LEAN_ENV: [(&str, &str); 3] = [
-    ("CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "0"),
-    ("CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "1"),
-    ("CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "off"),
-];
-/// What early versions (before 1.0.0) set, still taken back as fewer's (at fewer's own values):
-/// CLAUDE.md files off, and add-ons off (claude.ai's connectors, plugins' MCP servers, add-ons'
-/// instructions cut to one character).
-const OLD_LEAN_ENV: [(&str, &str); 4] = [
+/// The environment of fewer (only where the developer set nothing), nothing the developer sees
+/// changed. Read from Claude Code 2.1.287 and measured (2026-11-24): the commit lines' note moved
+/// into the Bash tool's text (ATTRIBUTION_ANNOUNCEMENT=0: ~180 tokens a step, the lines still
+/// written), no token countdown note after each step.
+pub const LEAN_ENV: [(&str, &str); 2] = [("CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "0"), ("CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "off")];
+/// What earlier versions set, still taken back as fewer's (at fewer's own values): before 1.0.0,
+/// CLAUDE.md files off and add-ons off (claude.ai's connectors, plugins' MCP servers, add-ons'
+/// instructions cut to one character); before 1.2.0, the AI-written session titles off (the
+/// developer's own switch).
+const OLD_LEAN_ENV: [(&str, &str); 5] = [
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
     ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
     ("CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS", "1"),
     ("CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH", "1"),
+    ("CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "1"),
 ];
-/// The parts an early version of fewer wrote that this version takes back on its own when it
-/// finds them (`fewer install`, `fewer on`): the add-ons off, in each of the ways it had.
-pub const RETIRED: [&str; 7] = [
+/// The parts an earlier version of fewer wrote that this version takes back on its own when it
+/// finds them (`fewer install`, `fewer on`): the add-ons off, in each of the ways it had; the
+/// session titles off (before 1.2.0).
+pub const RETIRED: [&str; 8] = [
     "lean:connectors",
     "lean:deny-web",
     "lean:allow-none",
@@ -766,6 +781,7 @@ pub const RETIRED: [&str; 7] = [
     "lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS",
     "lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH",
     "lean:env:CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+    "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
 ];
 /// An early version's entry in `deniedMcpServers`: Claude Code's connections to web add-ons off. Taken
 /// back, never written now.
@@ -799,32 +815,35 @@ pub fn core_rules(c: &str, who: &str) -> String {
         "{who} Check facts with commands; never guess. \
 Change only what was asked (fix code, not tests); look before you change; never delete data, force-push or reset unless asked; \
 never print secrets. Every step re-reads everything, so: for a question, one Bash call that gets every fact at once (a command, \
-or a small python3 program printing only the facts), then answer. Read only the files a job needs, whole: `{c} read FILE...` (each \
-file's line count, a repeated block once, nothing lost; one file shows a folder's style), several in one call, also when the user \
-asks to go through them one at a time (read them together, then answer about each in turn); never print long files; list a \
-project's files with git ls-files (find and ls -R list its ignored caches too), a folder's with ls, not ls -l. A CSV, TSV or log question: start \
-with `{c} table FILE` (columns, sums and counts by category: usually the answer). One python3 program rather than a chain of \
-shell commands, a heredoc alone in its command and each command under 10,000 characters (Claude Code refuses the rest: write a \
-long file in parts); in it never write a {{ with a quote before its }} ({{'a': 1}}, f\"{{', '.join(x)}}\"): Claude Code asks about such a command (in -p refuses it), heredocs included, so use dict(...) and set([...]), keep quotes out of an f-string's braces (sep = ', ' then f\"{{sep.join(x)}}\"); and no $(...) in a command (asked about too). Tests and builds: the command itself, ending in ` 2>&1 || true` (a long output \
-comes back short, each failure in full, all of it saved: `{c} tool lines` reads more); a commit's changes: `{c} changes [REV]`. Change files only with Edit and Write, never with python3 or the shell, so the \
-user's rewind and permission rules cover every change. New code: Write each file once, its tests run in the same step. A change: \
-Edit with an exact piece of text you have seen, never a whole file again; no Read first (Claude Code lets you edit a file you may read; \
-only if Edit says to read it first, Read just the lines you change, with offset and limit). A fix: one step running the failing \
-test and printing the code it uses, one with the Edit and the test run again, then answer. Answer briefly: exact names, numbers, \
-paths, errors."
+or a small python3 program printing only the facts), then answer. Read only the files a job needs, whole: `{c} read FILE...` (nothing \
+lost, a repeated block once; one file shows a folder's style), several in one call, also to go through them one at a time (read them \
+together, then answer about each); never cut its output with head or tail; never print long files; list a project's files with git \
+ls-files, a folder's with ls (not ls -l, find or ls -R: they list ignored caches too). A CSV, TSV or log question: `{c} table FILE` \
+first (sums and counts by category: usually the answer). One python3 program rather than a chain of shell commands, a heredoc \
+alone in its command and each command under 10,000 characters (Claude Code refuses the rest: write a long file in parts); in it \
+never write a {{ with a quote before its }} ({{'a': 1}}, f\"{{', '.join(x)}}\"): Claude Code asks about such a command (in -p refuses \
+it), heredocs included, so use dict(...) and set([...]), keep quotes out of an f-string's braces (sep = ', ' then f\"{{sep.join(x)}}\"); \
+and no $(...) in a command (asked about too). Tests and builds: the command itself, ending in ` 2>&1 || true` \
+(a long output comes back short, each failure in full, all of it saved: `{c} tool lines` reads more); a commit's changes: `{c} changes [REV]`. \
+Change files only with Edit and Write, never with python3 or the shell, so the user's rewind and permission rules cover every change. \
+New code: Write each file once, its tests run in the same step. A change: Edit with an exact piece of text you have seen, never a \
+whole file again, no Read first (only if Edit says to, Read just the lines you change, with offset and limit). A fix: the failing \
+test and the code it uses in one step, the Edit and the test run again in one step, then answer. Answer briefly: exact names, \
+numbers, paths, errors."
     )
 }
 
-/// Every feature, on demand (the main session's and helpers' agent).
+/// Every feature as the developer has it, fewer's cheaper way first where there is one (the main
+/// session's agent).
 pub fn feature_rules(c: &str) -> String {
     format!(
-        " Only when the user asks, or a job cannot be done without it (otherwise never look for them): a skill: \
-`{c} skill NAME \"the job\"` (its instructions for the job, to follow; `--all`: all of it); a picture or a scanned PDF: \
-`{c} look FILE... \"question\"` (you cannot see one); the web: `{c} web \"question, or a page's address and question\"`; \
-an add-on (MCP server) or a claude.ai connector: its tools, as usual (ToolSearch loads them); \
-helpers (asked for, or a very large job): `{c} helper \"<job 1>\" \"<job 2>\"` (one per job, all at once; write each job \
-as the facts to find); a workflow (asked for): `{c} workflow \"<the job>\"`. Run helpers and workflows in the foreground \
-with Bash's longest timeout."
+        " Claude Code's tools and features are all as the user has them; where fewer has a cheaper way, use it first: \
+the web: `{c} web \"question, or a page's address and question\"` (before WebFetch and WebSearch); a picture or a scanned \
+PDF: `{c} look FILE... \"question\"`; a skill: `{c} skill NAME \"the job\"` (the parts the job needs; `--all`: all of it). \
+Subagents and workflows only when the user asks or a job needs several agents at once, then every agent lean: the Agent \
+tool's subagent_type 'fewer-worker', and in a Workflow script agentType: 'fewer-worker' for every agent() call (each \
+agent's job as the facts to find; agent() with no schema). A tool the user turned off is off: use it no other way. An \
+add-on (MCP server) or a claude.ai connector: its tools, as usual (ToolSearch loads them)."
     )
 }
 
@@ -1317,7 +1336,7 @@ mod lean_tests {
         // the agents' files: written, rewritten, removed; someone else's is left alone
         write_lean_agent(&d, "fewer").unwrap();
         let text = fs::read_to_string(lean_agent_file(&d)).unwrap();
-        assert!(text.starts_with("---\nname: fewer-lean\n") && text.contains(&format!("disallowedTools: {LEAN_LEAVES_OUT}\n---\n")) && text.contains("ending in ` 2>&1 || true`") && text.contains("an add-on (MCP server) or a claude.ai connector: its tools, as usual (ToolSearch loads them)") && !text.contains("mcp list") && text.contains("`fewer helper \"<job 1>\" \"<job 2>\"`"), "{text}");
+        assert!(text.starts_with("---\nname: fewer-lean\n") && text.contains(&format!("disallowedTools: {LEAN_LEAVES_OUT}\n---\n")) && text.contains("ending in ` 2>&1 || true`") && text.contains("An add-on (MCP server) or a claude.ai connector: its tools, as usual (ToolSearch loads them)") && !text.contains("mcp list") && text.contains("the Agent tool's subagent_type 'fewer-worker'"), "{text}");
         let wf = fs::read_to_string(workflow_agent_file(&d)).unwrap();
         assert!(wf.starts_with("---\nname: fewer-lean-workflow\n") && wf.contains("tools: Bash, Read, Edit, Write, Workflow, Skill\n") && wf.contains("agentType: 'fewer-worker'") && wf.contains("Load no skill"), "{wf}");
         let wk = fs::read_to_string(worker_agent_file(&d)).unwrap();
@@ -1348,20 +1367,20 @@ mod lean_tests {
         let plan = lean_plan(&s, Some("/w/store"));
         // (the developer's add-ons and claude.ai's connectors stay as they are: fewer's own server
         // alone is kept off)
-        assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "env:FEWER_HOME", "deny-own"]);
+        assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "env:FEWER_HOME", "deny-own"]);
         let record = add_lean(&mut s, &plan, Some("/w/store"), false).unwrap();
-        assert_eq!(record, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own,lean:window");
-        assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"autoCompactWindow":100000,"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#);
+        assert_eq!(record, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own,lean:window");
+        assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"autoCompactWindow":100000,"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#);
         assert!(lean_plan(&s, Some("/w/store")).is_empty() && hides_own_server(&s));
         let said = remove_lean(&mut s, &record);
-        assert_eq!(said.len(), 7, "{said:?}");
+        assert_eq!(said.len(), 6, "{said:?}");
         assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true"}}"#);
         // the developer's own deny list: ours added at its end and taken back alone
         let mut d2 = json::parse(br#"{"deniedMcpServers":[{"serverName":"x"}]}"#).unwrap();
         let plan = lean_plan(&d2, None);
-        assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "deny-own"]);
+        assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "deny-own"]);
         let record = add_lean(&mut d2, &plan, None, false).unwrap();
-        assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"},{"serverName":"fewer"}],"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"autoCompactWindow":100000}"#);
+        assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"},{"serverName":"fewer"}],"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"autoCompactWindow":100000}"#);
         let said = remove_lean(&mut d2, &record);
         assert!(said.contains(&"deniedMcpServers fewer removed".to_string()), "{said:?}");
         assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"}]}"#);

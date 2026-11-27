@@ -1,0 +1,105 @@
+{
+ "duration_api_ms": 5007,
+ "stop_reason": "end_turn",
+ "session_id": "970086a4-267f-4dab-a77f-15b25b006387",
+ "total_cost_usd": 0.050621599999999996,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 5088,
+  "cache_read_input_tokens": 17748,
+  "output_tokens": 318,
+  "output_tokens_details": {
+   "thinking_tokens": 105
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 5088,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 318,
+    "cache_read_input_tokens": 17748,
+    "cache_creation_input_tokens": 5088,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 5088
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 318,
+   "cacheReadInputTokens": 17748,
+   "cacheCreationInputTokens": 5088,
+   "webSearchRequests": 0,
+   "costUSD": 0.050621599999999996,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 105,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 5088,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "`logs/app.log` has 1,592 requests with a 5xx status out of 20,000. All of them are logged at level ERROR, and no ERROR line has any other status.\n\n| Endpoint | 500 | 502 | 503 | **5xx total** |\n|---|---|---|---|---|\n| /api/pay | 166 | 153 | 97 | **416** |\n| /api/login | 163 | 144 | 95 | **402** |\n| /api/cart | 148 | 150 | 89 | **387** |\n| /api/search | 146 | 151 | 90 | **387** |\n| **All** | 623 | 598 | 371 | **1592** |",
+ "ttft_ms": 3961,
+ "type": "result",
+ "duration_ms": 5540,
+ "uuid": "8dbcd3c1-7b60-49bc-a224-d8e6034c4830",
+ "ttft_stream_ms": 3245,
+ "time_to_request_ms": 530,
+ "first_content_frame_ms": 3245,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 6.9,
+ "_helpers": [],
+ "_calls": [],
+ "_score": "right"
+}

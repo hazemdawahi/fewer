@@ -1,0 +1,118 @@
+{
+ "duration_api_ms": 14734,
+ "stop_reason": "end_turn",
+ "session_id": "94e5b191-679d-4f80-a2a2-47416223b64e",
+ "total_cost_usd": 0.0740494,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 5293,
+  "cache_read_input_tokens": 66207,
+  "output_tokens": 922,
+  "output_tokens_details": {
+   "thinking_tokens": 175
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 5293,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 682,
+    "cache_read_input_tokens": 23876,
+    "cache_creation_input_tokens": 430,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 430
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 922,
+   "cacheReadInputTokens": 66207,
+   "cacheCreationInputTokens": 5293,
+   "webSearchRequests": 0,
+   "costUSD": 0.0740494,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 175,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 5293,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "The last commit (`51752b2`, \"retry longer; lower tax on big orders\") changed one function in each of two files.\n\n**1. `tax(price)` in `calc/pricing.py`**\n- **Before:** every price was taxed at `TAX_RATE` (0.08).\n- **After:** prices under 1000 still use `TAX_RATE`. Prices of 1000 or more use a hard-coded 0.05 instead.\n- **Side effect:** the lower rate applies to the whole price, not just the part above 1000, so the tax drops sharply at the threshold. A price of 999.99 is taxed 80.00, but a price of 1000 is taxed only 50.00. A slightly bigger order ends up costing less in total. The 0.05 is also a bare number rather than a named constant like `TAX_RATE`.\n\n**2. `backoff(attempt)` in `calc/upload.py`**\n- **Before:** the retry delay was `2 ** attempt` seconds, capped at 30.\n- **After:** the cap is now 60 seconds.\n- **Effect on `upload()`:** with the default 7 retries, the waits go from 1, 2, 4, 8, 16, 30, 30 (91 s total) to 1, 2, 4, 8, 16, 32, 60 (123 s total). `upload()` itself wasn't edited, but it now takes longer to give up. It also still sleeps after the final failed attempt, so the last 60 seconds are spent waiting before returning `False` with no further retry.\n\nNothing else changed: no tests, and not `apply_discount` or `upload`.",
+ "ttft_ms": 4262,
+ "type": "result",
+ "duration_ms": 15241,
+ "uuid": "7391e087-7c88-4d20-adc5-f0ed48659684",
+ "ttft_stream_ms": 3568,
+ "time_to_request_ms": 227,
+ "first_content_frame_ms": 3569,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 16.2,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T7-claude-2\" && git show 51752b2",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T7-claude-2\" && cat calc/pricing.py calc/upload.py",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

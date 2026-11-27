@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.2.0 (2026-11-27)
+
+- Claude Code runs as normal: Fewer no longer turns any of its features off. Workflows,
+  subagents, skills, plan mode, Claude's questions, the to-do list, Artifacts and the AI-written
+  chat titles are as you have them, on or off. Fewer still uses its own cheaper ways first (the
+  web, pictures, skills) and makes the agents it starts in workflows and subagents lean.
+- An update from an earlier version gives back what that version turned off (only where it is
+  still at Fewer's own value).
+- Read-ahead: before Claude's first reply, Fewer reads what your message names and hands Claude
+  its short, exact view, so Claude can often answer in that first reply. It reads files and
+  folders, a CSV or a log, the last commit, a web page or a web search, and a failing Python
+  test with the code it imports. It also runs a test, build or lint command your message asks
+  for, but only when your own permission rules already let it run without asking, and never in
+  plan mode. Your Read rules and the project's bounds hold. To turn it off, put `ahead = off`
+  in Fewer's config.
+- `fewer read` of many files shows each file's own lines: its imports, constants and small
+  functions. A block that repeats with only its numbers changed is shown once and named where it
+  is. Before, Claude saw only the function names and had to search again.
+- `fewer web` works in `claude -p` runs too; before, it turned them away as Agent SDK programs.
+- `fewer update` on Windows works when run from PowerShell 7; before, the PowerShell it started
+  could not check the download, and the update did not happen.
+- Fewer's rules are shorter, and still say the same.
+- `fewer on` and `fewer off` say one line (`--dry-run` lists what they would change).
+
 ## 1.1.0 (2026-11-26)
 
 - Works on Windows too. In PowerShell:

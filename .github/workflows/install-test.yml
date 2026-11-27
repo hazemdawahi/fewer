@@ -1,0 +1,46 @@
+name: install-test
+# The published install lines as a new user runs them, on clean Linux, Mac and Windows machines,
+# after a release (with the repository public: a private repository's downloads need a login):
+# Claude Code, then Fewer's one line (its question answered yes), `fewer --version`, `fewer
+# update`. By hand: gh workflow run install-test
+on:
+  workflow_dispatch:
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Claude Code (macOS, Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Claude Code (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE '.local\bin')
+      - name: Fewer's install line, then fewer update (macOS, Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | sh -s -- --yes
+          "$HOME/.local/bin/fewer" --version
+          "$HOME/.local/bin/fewer" update
+          "$HOME/.local/bin/fewer" --version
+      - name: Fewer's install line, then fewer update (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:FEWER_YES = '1'
+          irm https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 | iex
+          $fewer = "$env:USERPROFILE\.local\bin\fewer.exe"
+          # (each command's exit code checked: a failing update once went by unseen)
+          & $fewer --version; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $fewer update; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $fewer --version; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

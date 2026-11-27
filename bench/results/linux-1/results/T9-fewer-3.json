@@ -1,0 +1,105 @@
+{
+ "duration_api_ms": 7133,
+ "stop_reason": "end_turn",
+ "session_id": "eeb22c9d-92d6-46bb-a20c-d47e440394da",
+ "total_cost_usd": 0.0603628,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 6171,
+  "cache_read_input_tokens": 12634,
+  "output_tokens": 423,
+  "output_tokens_details": {
+   "thinking_tokens": 97
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 6171,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 423,
+    "cache_read_input_tokens": 12634,
+    "cache_creation_input_tokens": 6171,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 6171
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 423,
+   "cacheReadInputTokens": 12634,
+   "cacheCreationInputTokens": 6171,
+   "webSearchRequests": 0,
+   "costUSD": 0.0603628,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 97,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 6171,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I read all 20 modules whole, in order. Each one has a `share_nXX(total, parts)` function and 84 copies of a `step_*` helper. The helpers only multiply, add and take square roots, so they never divide.\n\n**Functions that divide without checking for zero** (each returns `total / parts` with no `parts == 0` check):\n- `calc/n02.py`: `share_n02`\n- `calc/n07.py`: `share_n07`\n- `calc/n11.py`: `share_n11`\n- `calc/n15.py`: `share_n15`\n- `calc/n19.py`: `share_n19`\n\nThe other 15 `share_*` functions return 0 when `parts == 0`.\n\n(a) `MAX_BATCH = 384` in `calc/n04.py` (line 9).\n(b) `retry_policy()` is defined in `calc/n13.py` (line 9).\n(c) `close_books(rows)` is the function in `calc/n17.py` that calls `archive()` (line 14).",
+ "ttft_ms": 4742,
+ "type": "result",
+ "duration_ms": 7325,
+ "uuid": "809b9b30-7582-4211-a873-0087d595a668",
+ "ttft_stream_ms": 3633,
+ "time_to_request_ms": 190,
+ "first_content_frame_ms": 3633,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 8.1,
+ "_helpers": [],
+ "_calls": [],
+ "_score": "right"
+}

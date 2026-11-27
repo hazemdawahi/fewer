@@ -18,6 +18,8 @@
 //!   PreCompact hook's output to its summary's instructions): the whole session is kept by fewer,
 //!   and the card after the compaction gives back its commands, edits and last errors exactly.
 //!   When sessions are not saved it prints nothing, and the summary is Claude Code's own.
+//! - `fewer hook ahead` (UserPromptSubmit): read-ahead (ahead.rs), what the message names read
+//!   and run before Claude's first reply (`additionalContext`); nothing when it names nothing.
 
 use std::ffi::OsString;
 use std::io::Read;
@@ -40,8 +42,9 @@ pub fn cmd_hook(args: Vec<OsString>) -> i32 {
         "post-bash" => post_bash(&input),
         "start" => start(&input),
         "precompact" => precompact(&input),
+        "ahead" => ahead(&input),
         _ => {
-            eprintln!("usage: fewer hook post-bash|start|precompact  (the hook's JSON on stdin)");
+            eprintln!("usage: fewer hook post-bash|start|precompact|ahead  (the hook's JSON on stdin)");
             return 2;
         }
     };
@@ -342,6 +345,11 @@ pub fn run_then_reads<'a>(command: &str, text: &'a str) -> Option<(&'a str, &'a 
 
 /// What a compaction is asked to keep when fewer has the whole session.
 pub const SHORT_SUMMARY: &str = "Keep this summary short, about 1,500 tokens: the task and what was asked, the decisions made and why, what is done and what is next, and the exact names needed to go on (files, functions, commands, error messages, ids). Leave out file contents and long outputs: fewer keeps this whole session word for word, its card after the compaction gives back the commands run (failed or passed), the files edited and the last errors exactly, and fewer's history and search tools find anything else.";
+
+/// UserPromptSubmit: read-ahead (ahead.rs), in the message's folder.
+fn ahead(b: &[u8]) -> Option<String> {
+    crate::ahead::ahead(&input(b)?)
+}
 
 /// PreCompact: the short summary's instructions, when fewer saves the sessions.
 fn precompact(b: &[u8]) -> Option<String> {

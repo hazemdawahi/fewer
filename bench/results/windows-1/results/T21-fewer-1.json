@@ -1,0 +1,112 @@
+{
+ "duration_api_ms": 4138,
+ "stop_reason": "end_turn",
+ "session_id": "66956577-ea04-4205-aaf9-212db71bf2d4",
+ "total_cost_usd": 0.0439696,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 4724,
+  "cache_read_input_tokens": 17748,
+  "output_tokens": 131,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 4724,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 131,
+    "cache_read_input_tokens": 17748,
+    "cache_creation_input_tokens": 4724,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 4724
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 131,
+   "cacheReadInputTokens": 17748,
+   "cacheCreationInputTokens": 4724,
+   "webSearchRequests": 0,
+   "costUSD": 0.0439696,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 0,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 4724,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "In RFC 9110:\n\n- **416** means Range Not Satisfiable (Section 15.5.17). The server rejected the ranges in the request's Range header, either because none of them can be satisfied or because the client asked for too many small or overlapping ranges.\n- **421** means Misdirected Request (Section 15.5.20). The request went to a server that can't or won't give an authoritative response for the target URI.",
+ "ttft_ms": 5396,
+ "type": "result",
+ "duration_ms": 5419,
+ "uuid": "0c5e8895-6119-4da9-a9ac-e5b78245863d",
+ "ttft_stream_ms": 4401,
+ "time_to_request_ms": 1278,
+ "first_content_frame_ms": 4401,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 6.7,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "read-ahead",
+   "input": "fewer web, before the first reply",
+   "error": false,
+   "read": true
+  }
+ ],
+ "_score": "right"
+}

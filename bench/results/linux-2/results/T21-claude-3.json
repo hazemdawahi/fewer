@@ -1,0 +1,167 @@
+{
+ "duration_api_ms": 40138,
+ "stop_reason": "end_turn",
+ "session_id": "6dacac27-f29b-4ea0-b559-ce6ad0bbcaa3",
+ "total_cost_usd": 0.1199675,
+ "usage": {
+  "input_tokens": 16,
+  "cache_creation_input_tokens": 6668,
+  "cache_read_input_tokens": 139122,
+  "output_tokens": 1195,
+  "output_tokens_details": {
+   "thinking_tokens": 147
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 6668,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 200,
+    "cache_read_input_tokens": 21577,
+    "cache_creation_input_tokens": 359,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 359
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 16,
+   "outputTokens": 1195,
+   "cacheReadInputTokens": 139122,
+   "cacheCreationInputTokens": 6668,
+   "webSearchRequests": 0,
+   "costUSD": 0.1051324,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 147,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 6668,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  },
+  "claude-haiku-5-5": {
+   "inputTokens": 137351,
+   "outputTokens": 2200,
+   "cacheReadInputTokens": 0,
+   "cacheCreationInputTokens": 0,
+   "webSearchRequests": 0,
+   "costUSD": 0.014835100000000002,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 1610,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 0,
+   "canonicalModel": "claude-haiku-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_01CRS2z38bszZcfKQbLNGzKW",
+   "tool_input": {
+    "command": "curl -s https://www.rfc-editor.org/rfc/rfc9110.txt | grep -nE \"^ *15\\.5\\.(17|20)\\.|Range Not Satisfiable|Misdirected Request\" | head -20",
+    "description": "Fetch RFC 9110 text and search for the two status codes"
+   }
+  }
+ ],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 7,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "The two codes in RFC 9110 are:\n\n- **416 is Range Not Satisfiable.** It's defined in Section 15.5.17, \"416 Range Not Satisfiable\". Section 14.2 also says a server should send 416 when a requested range is unsupported or can't be satisfied.\n- **421 is Misdirected Request.** It's defined in Section 15.5.20, \"421 Misdirected Request\".\n\nBoth section headings come from the RFC's table of contents. I didn't read the full definitions in the body of Section 15.5.",
+ "ttft_ms": 4662,
+ "type": "result",
+ "duration_ms": 40846,
+ "uuid": "908b40d3-5311-47fc-8289-0ad62f33fa0c",
+ "ttft_stream_ms": 4466,
+ "time_to_request_ms": 126,
+ "first_content_frame_ms": 4467,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 41.4,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "ToolSearch",
+   "input": "select:WebFetch",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110",
+   "error": false,
+   "read": true
+  },
+  {
+   "tool": "Bash",
+   "input": "curl -s https://www.rfc-editor.org/rfc/rfc9110.txt | grep -nE \"^ *15\\.5\\.(17|20)\\.|Range Not Satisfiable|Misdirected Request\" | head -20",
+   "error": true,
+   "read": false
+  },
+  {
+   "tool": "WebFetch",
+   "input": "https://www.rfc-editor.org/rfc/rfc9110.txt",
+   "error": false,
+   "read": true
+  }
+ ],
+ "_score": "right"
+}

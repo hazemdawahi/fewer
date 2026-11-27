@@ -1,0 +1,118 @@
+{
+ "duration_api_ms": 15374,
+ "stop_reason": "end_turn",
+ "session_id": "124d2932-0901-41f0-83b0-3cc141a90b77",
+ "total_cost_usd": 0.0646814,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 4928,
+  "cache_read_input_tokens": 54567,
+  "output_tokens": 716,
+  "output_tokens_details": {
+   "thinking_tokens": 36
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 4928,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 247,
+    "cache_read_input_tokens": 19747,
+    "cache_creation_input_tokens": 449,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 449
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 716,
+   "cacheReadInputTokens": 54567,
+   "cacheCreationInputTokens": 4928,
+   "webSearchRequests": 0,
+   "costUSD": 0.0646814,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 36,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 4928,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I summed all 3,000 rows of `data/sales.csv`. Every row parsed cleanly, and there are exactly four regions, with no stray spellings or blanks.\n\n**Total amount by region** (`amount_cents` converted to dollars):\n\n| Region | Total |\n|---|---|\n| east | $326,980.99 |\n| north | $361,168.15 |\n| south | $336,029.54 |\n| west | $341,411.07 |\n\n**Most units sold:** **anvil**, with 13,385 units in total. The rest, from most to fewest, are crank (12,796), bolt (11,847), easel (11,838) and dowel (11,517).",
+ "ttft_ms": 4050,
+ "type": "result",
+ "duration_ms": 15801,
+ "uuid": "dfac76b8-a16b-467c-ba5c-3b10be8e0b35",
+ "ttft_stream_ms": 3325,
+ "time_to_request_ms": 139,
+ "first_content_frame_ms": 3325,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 16.4,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T5-claude-3; head -5 data/sales.csv; wc -l data/sales.csv",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /home/runner/work/_temp/bench/runs/T5-claude-3; python3 -I -c \"\nimport csv,collections\nr=collections.Counter();p=collections.Counter();bad=[]\nfor i,row in enumerate(csv.DictReader(open('data/sales.csv')),2):\n    try: r[row['region'].strip()]+=int(row['amount_cents']); p[row['product'].strip()]+=i",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

@@ -1,0 +1,132 @@
+{
+ "duration_api_ms": 10259,
+ "stop_reason": "end_turn",
+ "session_id": "d50842a4-7e4d-4c49-b6b3-7bc57c2ab219",
+ "total_cost_usd": 0.06328879999999999,
+ "usage": {
+  "input_tokens": 4,
+  "cache_creation_input_tokens": 5354,
+  "cache_read_input_tokens": 40304,
+  "output_tokens": 619,
+  "output_tokens_details": {
+   "thinking_tokens": 75
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 5354,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 238,
+    "cache_read_input_tokens": 22556,
+    "cache_creation_input_tokens": 546,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 546
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 4,
+   "outputTokens": 619,
+   "cacheReadInputTokens": 40304,
+   "cacheCreationInputTokens": 5354,
+   "webSearchRequests": 0,
+   "costUSD": 0.06328879999999999,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 75,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 5354,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "I fixed the bug in `calc/pricing.py`, and `test_discount_rounding` now passes. I only ran that one test after the change.\n\n**Cause:** `apply_discount` cut off the extra digits instead of rounding: `int(price * (1 - pct/100) * 100) / 100`. Computers store 2.30 \u00c3\u2014 0.5 as slightly less than 1.15, so cutting off the digits gave 1.14.\n\n**Fix:** It now rounds to two decimal places instead: `return round(price * (1 - pct / 100), 2)`.\n\n**Result:** `python -m unittest -v tests.test_pricing.TestPricing.test_discount_rounding` \u00e2\u2020\u2019 `ok` (Ran 1 test, OK).",
+ "ttft_ms": 4268,
+ "type": "result",
+ "duration_ms": 11414,
+ "uuid": "c6441e86-8989-4678-8e7e-4f2b8a886e5a",
+ "ttft_stream_ms": 3427,
+ "time_to_request_ms": 582,
+ "first_content_frame_ms": 3427,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 12.7,
+ "_test_passes": true,
+ "_test_file_unchanged": true,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Edit",
+   "input": "D:\\a\\_temp\\bench\\runs\\T6-fewer-1\\calc\\pricing.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T6-fewer-1\" && python -m unittest -v tests.test_pricing.TestPricing.test_discount_rounding 2>&1 || true",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Edit",
+   "input": "D:\\a\\_temp\\bench\\runs\\T6-fewer-1\\calc\\pricing.py",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T6-fewer-1\" && python -m unittest -v tests.test_pricing.TestPricing.test_discount_rounding 2>&1 || true",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

@@ -1,0 +1,124 @@
+{
+ "duration_api_ms": 18114,
+ "stop_reason": "end_turn",
+ "session_id": "b662f291-e0e9-40ba-ab3c-e21790f9782e",
+ "total_cost_usd": 0.09276740000000001,
+ "usage": {
+  "input_tokens": 8,
+  "cache_creation_input_tokens": 7172,
+  "cache_read_input_tokens": 88097,
+  "output_tokens": 887,
+  "output_tokens_details": {
+   "thinking_tokens": 37
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 7172,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 220,
+    "cache_read_input_tokens": 23944,
+    "cache_creation_input_tokens": 379,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 379
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 8,
+   "outputTokens": 887,
+   "cacheReadInputTokens": 88097,
+   "cacheCreationInputTokens": 7172,
+   "webSearchRequests": 0,
+   "costUSD": 0.09276740000000001,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 37,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 7172,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 4,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "There are 1,592 requests with a 5xx status in `logs/app.log`. By endpoint:\n\n| Endpoint | 5xx count |\n|---|---|\n| /api/pay | 416 |\n| /api/login | 402 |\n| /api/cart | 387 |\n| /api/search | 387 |\n\nBy status code, that's 623 \u00c3\u2014 500, 598 \u00c3\u2014 502 and 371 \u00c3\u2014 503.\n\nAll 20,000 lines are in the same format, there are no duplicate request IDs, and the endpoint paths have no variants like query strings or trailing slashes. So these counts are exact. I counted each request by its own HTTP method and path, so `/api/pay` includes the POSTs.",
+ "ttft_ms": 4303,
+ "type": "result",
+ "duration_ms": 19223,
+ "uuid": "6d1f86c4-be84-4765-9bd9-6237c7157288",
+ "ttft_stream_ms": 3567,
+ "time_to_request_ms": 313,
+ "first_content_frame_ms": 3567,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 20.2,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "cd /d/a/_temp/bench/runs/T3-claude-2; wc -l logs/app.log; head -5 logs/app.log",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /d/a/_temp/bench/runs/T3-claude-2; grep -cvE '^\\S+ \\S+ req=\\S+ \\S+ \\S+ status=[0-9]{3} dur_ms=\\S+$' logs/app.log; grep -vE '^\\S+ \\S+ req=\\S+ \\S+ \\S+ status=[0-9]{3} dur_ms=\\S+$' logs/app.log | head -20; awk '{print $3}' logs/app.log | sort | uniq -d | head",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd /d/a/_temp/bench/runs/T3-claude-2; awk '{print $5}' logs/app.log | sort | uniq -c; echo ---; grep -E 'status=5[0-9]{2} ' logs/app.log | awk '{print $5}' | sort | uniq -c; echo ---; grep -E 'status=5' logs/app.log | awk '{print $6}' | sort | uniq -c; grep -cE 'status=5' logs/app.log",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

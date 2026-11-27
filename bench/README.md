@@ -1,51 +1,52 @@
 # Rerun Fewer's benchmark
 
-The numbers on the main page come from this benchmark. Run it on your own computer to see your
-own numbers.
+The numbers on the main page come from this benchmark. You can run it yourself.
 
-**What it does:** it makes a small made-up project (code with two failing tests, a 20,000-line
-log, a CSV file, a git history), then gives your own Claude Code the same 9 tasks twice: once as
-it is, once with Fewer. For each run it counts the tokens Claude Code used (input and cache, every
-model, Fewer's helpers too) and checks the answer against the facts it planted.
-
-Both setups load the same things of yours: your login, your CLAUDE.md, your add-ons and skills.
-The only difference is Fewer. So your numbers depend on your setup, and they will not match ours
-exactly.
+It makes a small made-up project and gives Claude Code the same 9 tasks twice: once alone, once
+with Fewer. It counts every token each run uses and checks each answer.
 
 ## Run it
 
-You need Claude Code (logged in), Python 3 and git, and Fewer installed (`fewer` on your PATH).
+You need Claude Code, Python 3, git and Fewer.
 
 ```sh
 python3 bench/bench.py run ~/fewer-bench
 ```
 
-It prints each run as it goes, then a table like the one on the main page. To see the table again:
-`python3 bench/bench.py report ~/fewer-bench`.
+For a clean run without your own Claude Code settings, first make a login token with
+`claude setup-token` and set it as `CLAUDE_CODE_OAUTH_TOKEN`.
 
-**It uses your Claude usage:** the whole benchmark is 54 runs (9 tasks, 3 runs each, 2 setups),
-about 6 million tokens with Claude Code alone and under 1 million with Fewer. To try it small
-first:
+It uses your Claude usage: about 6 million tokens alone, under 1 million with Fewer. To try it
+small first:
 
 ```sh
 python3 bench/bench.py run ~/fewer-bench --tasks T1,T7 --runs 1
 ```
 
-If your plan's usage limit is reached, it stops; run the same command later and it goes on where
-it stopped.
+If it hits your usage limit, it stops. Run the same command later and it picks up where it left off.
+
+Claude answers a little differently every time, so expect numbers close to ours, not the same.
 
 ## The tasks
 
-| | Task | What Claude is asked |
-|---|---|---|
-| T1 | Find why the tests fail | Run the tests; which fail and what each failure says |
-| T3 | Count the errors in a log | 5xx responses per endpoint in a 20,000-line log |
-| T5 | Add up the totals in a CSV file | Each region's total to the cent, and the top product |
-| T7 | Explain the last commit | Each function the last commit changed, and how |
-| T21 | Find two status codes in a web page | Read RFC 9110 on the web for two HTTP status codes |
-| T22 | A web search | The year Rust 1.0 came out |
-| T6 | Fix a bug, then run its test | Fix the code (not the test) and show the test passes |
-| T8 | Read 13 files and answer 5 questions | Facts spread over 13 modules |
-| T9 | Review 20 files one by one | A long chat: 20 long modules read whole, five bugs to find |
+| | Task |
+|---|---|
+| T1 | Find why the tests fail |
+| T3 | Count the errors in a log |
+| T5 | Add up the totals in a CSV file |
+| T7 | Explain the last commit |
+| T21 | Find two status codes in a web page |
+| T22 | A web search: when Rust 1.0 came out |
+| T6 | Fix a bug, then run its test |
+| T8 | Read 13 files and answer 5 questions |
+| T9 | Review 20 files one by one |
 
 The exact wording of each task is at the top of `bench.py`.
+
+## Our runs
+
+[results/](results) holds every run behind the main page's numbers. To print the table from them:
+
+```sh
+python3 bench/bench.py report bench/results/*
+```

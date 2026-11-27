@@ -1,0 +1,118 @@
+{
+ "duration_api_ms": 15278,
+ "stop_reason": "end_turn",
+ "session_id": "da235c1b-e6ad-40f8-bc73-3ef349792aac",
+ "total_cost_usd": 0.089118,
+ "usage": {
+  "input_tokens": 6,
+  "cache_creation_input_tokens": 7163,
+  "cache_read_input_tokens": 64350,
+  "output_tokens": 946,
+  "output_tokens_details": {
+   "thinking_tokens": 146
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 7163,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 700,
+    "cache_read_input_tokens": 23878,
+    "cache_creation_input_tokens": 436,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 436
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 6,
+   "outputTokens": 946,
+   "cacheReadInputTokens": 64350,
+   "cacheCreationInputTokens": 7163,
+   "webSearchRequests": 0,
+   "costUSD": 0.089118,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 146,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 7163,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 3,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "The last commit (`df77eb8`, \"retry longer; lower tax on big orders\") changed one function in each of two files.\n\n**1. `tax(price)` in `calc/pricing.py`**\n- **Before:** every price was taxed at `TAX_RATE` (0.08).\n- **After:** prices under 1000 are still taxed at 8%, but prices of 1000 or more are taxed at a hard-coded 5%.\n- Because the rate is a flat 5% on the whole price, not a lower rate on the amount above 1000, the tax drops at the threshold. A price of 999.99 is taxed 80.00, while a price of 1000 is taxed 50.00. The 0.05 is also written directly into the function instead of being a named constant like `TAX_RATE`.\n\n**2. `backoff(attempt)` in `calc/upload.py`**\n- **Before:** the wait between retries was `min(2 ** attempt, 30)`, so at most 30 seconds.\n- **After:** the cap is now 60 seconds: `min(2 ** attempt, 60)`.\n- The number of retries did not change. `MAX_UPLOAD_RETRIES` is still 7 (or whatever `CALC_UPLOAD_RETRIES` is set to), and `upload()` itself is unchanged. \"Retry longer\" means each retry can wait longer, not that there are more retries. With the default 7 attempts, the waits go from 1, 2, 4, 8, 16, 30, 30 (91s total) to 1, 2, 4, 8, 16, 32, 60 (123s total). `upload()` also waits after the final failed attempt before returning `False`, so a failed upload now takes about 2 minutes to report failure instead of about 1.5 minutes.",
+ "ttft_ms": 3644,
+ "type": "result",
+ "duration_ms": 15915,
+ "uuid": "373c63fc-7a9a-461e-8c5b-45ef42d4da61",
+ "ttft_stream_ms": 2994,
+ "time_to_request_ms": 309,
+ "first_content_frame_ms": 2995,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 17.0,
+ "_helpers": [],
+ "_calls": [
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T7-claude-2\" && git show df77eb8",
+   "error": false,
+   "read": false
+  },
+  {
+   "tool": "Bash",
+   "input": "cd \"D:/a/_temp/bench/runs/T7-claude-2\" && cat calc/pricing.py calc/upload.py",
+   "error": false,
+   "read": false
+  }
+ ],
+ "_score": "right"
+}

@@ -1,0 +1,105 @@
+{
+ "duration_api_ms": 4381,
+ "stop_reason": "end_turn",
+ "session_id": "dcdd8abc-5178-4881-b5fe-eac3b0f600dc",
+ "total_cost_usd": 0.0695388,
+ "usage": {
+  "input_tokens": 2,
+  "cache_creation_input_tokens": 7613,
+  "cache_read_input_tokens": 12434,
+  "output_tokens": 307,
+  "output_tokens_details": {
+   "thinking_tokens": 86
+  },
+  "server_tool_use": {
+   "web_search_requests": 0,
+   "web_fetch_requests": 0
+  },
+  "service_tier": "standard",
+  "cache_creation": {
+   "ephemeral_1h_input_tokens": 7613,
+   "ephemeral_5m_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "iterations": [
+   {
+    "input_tokens": 2,
+    "output_tokens": 307,
+    "cache_read_input_tokens": 12434,
+    "cache_creation_input_tokens": 7613,
+    "cache_creation": {
+     "ephemeral_5m_input_tokens": 0,
+     "ephemeral_1h_input_tokens": 7613
+    },
+    "type": "message"
+   }
+  ],
+  "speed": "standard",
+  "fallback_credit": null
+ },
+ "modelUsage": {
+  "claude-opus-5-5": {
+   "inputTokens": 2,
+   "outputTokens": 307,
+   "cacheReadInputTokens": 12434,
+   "cacheCreationInputTokens": 7613,
+   "webSearchRequests": 0,
+   "costUSD": 0.0695388,
+   "contextWindow": 1000000,
+   "maxOutputTokens": 128000,
+   "thinkingTokens": 86,
+   "cacheCreationEphemeral5mInputTokens": 0,
+   "cacheCreationEphemeral1hInputTokens": 7613,
+   "canonicalModel": "claude-opus-5-5",
+   "provider": "firstParty",
+   "costBasis": "list"
+  }
+ },
+ "permission_denials": [],
+ "terminal_reason": "completed",
+ "fast_mode_state": "off",
+ "fast_mode_disabled_reason": "sdk_opt_in_required",
+ "subagent_stats": {
+  "spawned": 0,
+  "requested": {
+   "background": 0,
+   "foreground": 0,
+   "unset": 0
+  },
+  "started_in_background": 0,
+  "max_depth": 0,
+  "spawned_by_subagents": 0,
+  "completed": 0,
+  "failed": 0,
+  "killed": {
+   "parent": 0,
+   "user": 0,
+   "system": 0
+  },
+  "refused": {
+   "depth_limit": 0,
+   "concurrency_limit": 0,
+   "budget": 0
+  },
+  "by_type": {}
+ },
+ "safety_stops": 0,
+ "is_error": false,
+ "num_turns": 1,
+ "subtype": "success",
+ "api_error_status": null,
+ "result": "These all come from reading every file in `calc/`:\n\n- **(a)** `DEFAULT_TIMEOUT = 45`, set in `calc/m03.py` on line 4.\n- **(b)** The `normalize()` in `calc/m07.py` raises `ValueError(\"empty name\")` when the name is empty.\n- **(c)** `calc/m04.py` and `calc/m11.py` import `json`. Each uses it in `dump()`.\n- **(d)** In `calc/m09.py`, `LIMIT = 1337`.\n- **(e)** `close_month()` in `calc/m10.py` calls `send_report()`. It imports it from `calc.report`.",
+ "ttft_ms": 3012,
+ "type": "result",
+ "duration_ms": 4548,
+ "uuid": "e51df574-4b45-40f5-a4d0-7679d686fbc9",
+ "ttft_stream_ms": 2169,
+ "time_to_request_ms": 165,
+ "first_content_frame_ms": 2169,
+ "queued_turn_count": 0,
+ "result_index": 0,
+ "_seconds": 5.4,
+ "_helpers": [],
+ "_calls": [],
+ "_score": "right"
+}

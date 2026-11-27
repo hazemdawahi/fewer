@@ -169,14 +169,58 @@ pub fn cmd_read(args: Vec<OsString>) -> i32 {
 /// The smallest --max (characters).
 const MIN_MAX: usize = 3_000;
 
+/// Files as `fewer read FILE...` shows them, within `max`: several whole when they fit, else the
+/// view of many; one: as far as `max` goes, with the line that reads on (read-ahead, ahead.rs).
+pub fn ahead_view(files: &[OsString], max: usize, me: &str) -> String {
+    let (view, _, stopped) = read_files(files, None, 0, max, me);
+    if files.len() == 1 || !(stopped || view.lines().any(is_cut_line)) {
+        return view;
+    }
+    let size: u64 = files.iter().filter_map(|f| std::fs::metadata(f).ok()).map(|m| m.len()).sum();
+    let fits = !read_files(files, None, 0, MAX_CHARS, me).2;
+    outline_view(files, size as usize, max, fits, me)
+}
+
 /// The most definitions named for each file in an outline view.
 const OUTLINE_NAMES: usize = 6;
+/// The most module lines (a file's lines outside its definitions: imports, constants) named for
+/// a file in an outline view.
+const OUTLINE_MODULE_LINES: usize = 6;
+/// A file's own lines (those not in copies of a repeated block) are shown whole in a view of many
+/// files up to this many characters; past it, its module lines and definitions.
+const OWN_WHOLE: usize = 800;
+/// A repeated block is shown whole once up to this many lines and characters; past it, its first line.
+const BLOCK_WHOLE_LINES: usize = 40;
+const BLOCK_WHOLE_CHARS: usize = 1_500;
 
-/// Many files past `max`: each file's lines and its first top-level definitions with their line
-/// ranges, then how to read what is needed (all of them whole only when they `fit` in one output
-/// Claude Code shows whole). Within `max` itself; secrets hidden, as in every view.
+/// One file in a view of many files: its head, its own lines and runs of copies in line order
+/// (with the characters of its own lines), and its outline (one line).
+struct ManyFile {
+    head: String,
+    whole: Option<(String, usize)>,
+    outline: String,
+}
+
+/// A repeated block's name: A to Z, then 27, 28 and on.
+fn block_name(k: usize) -> String {
+    if k < 26 { ((b'A' + k as u8) as char).to_string() } else { (k + 1).to_string() }
+}
+
+/// Many files past `max`: each file's own lines whole (empty lines left out), with the blocks
+/// that come 3 times or more in a row differing only in their numbers (the same block in any of
+/// the files) shown once and named where they are; a file with many lines of its own: its module
+/// lines (imports, constants) and definitions with their line ranges. Then how to read what is
+/// needed (all of them whole only when they `fit` in one output Claude Code shows whole). Within
+/// `max`, the largest files' own lines given up for their outlines first; secrets hidden, as in
+/// every view (2026-11-26: a job asking for constants, imports and one call in 37 modules saw
+/// their definitions only, then searched them twice; their own lines hold the answers).
 fn outline_view(files: &[OsString], view: usize, max: usize, fits: bool, me: &str) -> String {
-    let mut out = format!("{} files, {} bytes together, past the {} characters shown at once: each file's top-level definitions (lines) instead.\n", files.len(), group(view as u64), group(max as u64));
+    let head = format!(
+        "{} files, {} bytes together, past the {} characters shown at once: each file's lines (empty ones left out), a block that repeats in a row, the same but for its numbers, shown once and named where it is; a file with many lines of its own: its module lines and definitions (lines).\n",
+        files.len(),
+        group(view as u64),
+        group(max as u64)
+    );
     let whole = if fits {
         format!("When the job asks for all of them whole: the same command with --max {MAX_CHARS}.")
     } else {
@@ -186,53 +230,176 @@ fn outline_view(files: &[OsString], view: usize, max: usize, fits: bool, me: &st
     // names --max)
     let tail = format!("Read the files the job needs: {me} read FILE (several: {me} read --max {MAX_CHARS} FILE...); a part of one: {me} read --from LINE FILE; or print only what you need with a small python3 program. {whole}\n");
     let extras = config_secrets();
+    // the repeated blocks met, in order: their shape's key, and their text as shown once
+    let mut blocks: Vec<(u64, String)> = Vec::new();
+    let mut parts: Vec<ManyFile> = Vec::new();
+    // (the blocks each file names)
+    let mut uses: Vec<Vec<usize>> = Vec::new();
     for f in files {
         let path = shown(&f.to_string_lossy());
-        let Ok(bytes) = std::fs::read(f) else {
-            out.push_str(&format!("== {path}: cannot be read\n"));
-            continue;
-        };
-        // (a definition's line may hold a key: `export const KEY = "..."`;
-        // hidden keeping every line, so that the ranges are the file's)
-        let (bytes, hidden, _) = hide_file(f.as_ref(), &bytes, &extras);
-        let n = bytecount_lines(&bytes);
-        let secrets = if hidden.total() > 0 { format!(", {} hidden", plural(hidden.total(), "secret")) } else { String::new() };
-        let items: Vec<crate::outline::Item> = if bytes.contains(&0) { Vec::new() } else { crate::outline::outline(&bytes, crate::outline::kind_of(&path)).into_iter().filter(|i| i.depth == 0).collect() };
-        // definitions in a row that differ only in their numbers (step_21_00, step_21_01, ...): the
-        // first and how many more (2026-11-25: 20 modules of 84 such steps, five of them named in
-        // each module's line, 6,171 characters read again at every later step)
-        let mut groups: Vec<(usize, usize)> = Vec::new(); // (first item, items)
-        for (i, it) in items.iter().enumerate() {
-            match groups.last_mut() {
-                Some((f, n)) if shape(items[*f].text.trim()).0 == shape(it.text.trim()).0 => *n += 1,
-                _ => groups.push((i, 1)),
+        let bytes = match std::fs::read(f) {
+            Ok(b) if b.contains(&0) => {
+                parts.push(ManyFile { head: format!("== {path}: not text ({}), not shown\n", plural(b.len() as u64, "byte")), whole: Some((String::new(), 0)), outline: String::new() });
+                uses.push(Vec::new());
+                continue;
             }
-        }
-        let names: Vec<String> = groups
+            Ok(b) => b,
+            Err(_) => {
+                let why = if std::path::Path::new(f).is_dir() { "a folder: give the files in it" } else { "cannot be read" };
+                parts.push(ManyFile { head: format!("== {path}: {why}\n"), whole: Some((String::new(), 0)), outline: String::new() });
+                uses.push(Vec::new());
+                continue;
+            }
+        };
+        // (a line may hold a key: `export const KEY = "..."`; hidden keeping every line, so that
+        // the numbers are the file's)
+        let (bytes, hidden, _) = hide_file(f.as_ref(), &bytes, &extras);
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let lines = split_lines(&text);
+        let secrets = if hidden.total() > 0 { format!(", {} hidden", plural(hidden.total(), "secret")) } else { String::new() };
+        let head = format!("== {path} ({}{secrets})", plural(lines.len() as u64, "line"));
+        let items: Vec<crate::outline::Item> = crate::outline::outline(&bytes, crate::outline::kind_of(&path)).into_iter().filter(|i| i.depth == 0).collect();
+        let empty = |i: usize| lines.get(i).is_none_or(|l| l.trim().is_empty());
+        // each definition's lines (0-based, to its last line that is not empty), and its shape's
+        // key: two definitions of one key differ only in their numbers
+        let spans: Vec<(usize, usize)> = items
             .iter()
-            .take(OUTLINE_NAMES)
-            .map(|&(f, n)| {
-                let i = &items[f];
-                let t: String = i.text.trim().chars().take(70).collect();
-                if n == 1 { format!("{t} ({}-{})", i.line, i.end) } else { format!("{t} ({}-{}) and {} more differing only in numbers, to line {}", i.line, i.end, n - 1, items[f + n - 1].end) }
+            .map(|it| {
+                let a = (it.line as usize - 1).min(lines.len());
+                let mut b = (it.end as usize).min(lines.len()).max(a);
+                while b > a + 1 && empty(b - 1) {
+                    b -= 1;
+                }
+                (a, b)
             })
             .collect();
-        let left: usize = groups.iter().skip(OUTLINE_NAMES).map(|g| g.1).sum();
-        let more = if left > 0 { format!("; and {left} more") } else { String::new() };
-        let line = format!("== {path} ({}{secrets}): {}{more}\n", plural(n, "line"), if names.is_empty() { "no definitions found".to_string() } else { names.join("; ") });
-        if out.len() + line.len() + tail.len() + 40 > max {
-            out.push_str(&format!("… and {} more files\n", files.len() - out.matches("\n== ").count() - usize::from(out.starts_with("== "))));
-            break;
+        let keys: Vec<u64> = spans.iter().map(|&(a, b)| hash_of(&lines[a..b].iter().map(|l| shape(l).0).collect::<Vec<_>>().join("\n"))).collect();
+        // copies in a row: (the first definition, how many), MIN_COPIES at least (2026-11-25: 20
+        // modules of 84 such steps, five of them named in each module's line, 6,171 characters
+        // read again at every later step)
+        let mut runs: Vec<(usize, usize)> = Vec::new();
+        let mut k = 0;
+        while k < items.len() {
+            let j = k + keys[k..].iter().take_while(|&&x| x == keys[k]).count();
+            if j - k >= MIN_COPIES {
+                runs.push((k, j - k));
+            }
+            k = j;
         }
-        out.push_str(&line);
+        // each run named in place (its lines, its copies, its block), its block's text the first
+        // time it is met
+        let mut in_run = vec![false; lines.len()];
+        let mut run_lines: Vec<(usize, String)> = Vec::new();
+        let mut used = Vec::new();
+        for &(k, n) in &runs {
+            let (a, _) = spans[k];
+            let (_, b) = spans[k + n - 1];
+            for x in &mut in_run[a..(items[k + n - 1].end as usize).min(lines.len())] {
+                *x = true;
+            }
+            let p = match blocks.iter().position(|(key, _)| *key == keys[k]) {
+                Some(p) => p,
+                None => {
+                    let body = &lines[spans[k].0..spans[k].1];
+                    let rows: String = body.iter().map(|l| format!("  | {l}\n")).collect();
+                    let name = block_name(blocks.len());
+                    let what = format!("block {name}, {}, as at {path} {}-{}", plural(body.len() as u64, "line"), spans[k].0 + 1, spans[k].1);
+                    let text = if body.len() <= BLOCK_WHOLE_LINES && rows.len() <= BLOCK_WHOLE_CHARS {
+                        format!("{what} (its copies differ only in their numbers; each copy's: {me} read FILE):\n{rows}")
+                    } else {
+                        format!("{what} (its copies differ only in their numbers), its first line: {}\n", body.first().map_or("", |l| l.trim()))
+                    };
+                    blocks.push((keys[k], text));
+                    blocks.len() - 1
+                }
+            };
+            used.push(p);
+            run_lines.push((a, format!("{}-{}: {n} copies of block {}", a + 1, b, block_name(p))));
+        }
+        // its own lines, numbered, and its runs, in line order
+        let mut whole = String::new();
+        let mut own = 0usize;
+        let mut at = 0;
+        for (i, l) in lines.iter().enumerate() {
+            while at < run_lines.len() && run_lines[at].0 <= i {
+                whole.push_str(&run_lines[at].1);
+                whole.push('\n');
+                at += 1;
+            }
+            if in_run[i] || l.trim().is_empty() {
+                continue;
+            }
+            own += l.len();
+            whole.push_str(&numbered(i, l));
+        }
+        for (_, r) in &run_lines[at..] {
+            whole.push_str(r);
+            whole.push('\n');
+        }
+        // its outline: its module lines (outside its definitions), its other definitions, its runs
+        let inside = |i: usize| items.iter().any(|it| i + 1 >= it.line as usize && i < it.end as usize);
+        let mut bits: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, l)| !inside(*i) && !l.trim().is_empty())
+            .take(OUTLINE_MODULE_LINES)
+            .map(|(i, l)| format!("{} {}", i + 1, l.trim().chars().take(70).collect::<String>()))
+            .collect();
+        let lone: Vec<usize> = (0..items.len()).filter(|&k| !runs.iter().any(|&(f, n)| k >= f && k < f + n)).collect();
+        bits.extend(lone.iter().take(OUTLINE_NAMES).map(|&k| format!("{} ({}-{})", items[k].text.trim().chars().take(70).collect::<String>(), items[k].line, items[k].end)));
+        if lone.len() > OUTLINE_NAMES {
+            bits.push(format!("and {} more", lone.len() - OUTLINE_NAMES));
+        }
+        bits.extend(run_lines.iter().map(|(_, r)| r.clone()));
+        let outline = if bits.is_empty() { "no definitions found".to_string() } else { bits.join("; ") };
+        parts.push(ManyFile { head, whole: Some((whole, own)), outline });
+        uses.push(used);
     }
-    out.push_str(&tail);
-    out
-}
-
-fn bytecount_lines(b: &[u8]) -> u64 {
-    let n = b.iter().filter(|&&c| c == b'\n').count() as u64;
-    if b.last().is_some_and(|&c| c != b'\n') { n + 1 } else { n }
+    let render = |as_whole: &[bool], upto: usize| -> String {
+        let mut out = head.clone();
+        let mut named: Vec<usize> = uses[..upto].iter().flatten().copied().collect();
+        named.sort_unstable();
+        named.dedup();
+        for k in named {
+            out.push_str(&blocks[k].1);
+        }
+        for (p, &w) in parts[..upto].iter().zip(as_whole) {
+            out.push_str(&p.head);
+            match (&p.whole, w) {
+                (Some((text, _)), true) => {
+                    if !p.head.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    out.push_str(text);
+                }
+                _ => {
+                    out.push_str(": ");
+                    out.push_str(&p.outline);
+                    out.push('\n');
+                }
+            }
+        }
+        if upto < parts.len() {
+            out.push_str(&format!("… and {} more files\n", parts.len() - upto));
+        }
+        out.push_str(&tail);
+        out
+    };
+    // within max: the file with the most own lines shown whole gives them up for its outline,
+    // again and again; then the last files are left out
+    let mut as_whole: Vec<bool> = parts.iter().map(|p| p.whole.as_ref().is_some_and(|(_, own)| *own <= OWN_WHOLE)).collect();
+    let mut upto = parts.len();
+    loop {
+        let v = render(&as_whole, upto);
+        if v.len() <= max || upto == 0 {
+            return v;
+        }
+        let biggest = (0..upto).filter(|&k| as_whole[k] && parts[k].whole.as_ref().is_some_and(|(t, _)| !t.is_empty())).max_by_key(|&k| parts[k].whole.as_ref().map_or(0, |(t, _)| t.len()));
+        match biggest {
+            Some(k) => as_whole[k] = false,
+            None => upto -= 1,
+        }
+    }
 }
 
 /// How a command names this fewer (as in the lean rules).
@@ -1282,14 +1449,41 @@ mod tests {
         std::fs::write(&f, names.iter().map(|n| format!("def {n}(x):\n    return x\n")).collect::<String>()).unwrap();
         files.push(f.into_os_string());
         let size: u64 = files.iter().map(|f| std::fs::metadata(f).unwrap().len()).sum();
+        let p = |k: usize| shown(&files[k].to_string_lossy());
         let v = outline_view(&files, size as usize, 1_400, true, "fewer");
-        assert!(v.starts_with(&format!("4 files, {} bytes together, past the 1,400 characters shown at once", group(size))), "{v}");
-        assert!(v.contains("words.py (16 lines): def alpha(x): (1-2); def beta(x): (3-4); def gamma(x): (5-6); def delta(x): (7-8); def epsilon(x): (9-10); def zeta(x): (11-12); and 2 more\n"), "{v}");
-        assert!(v.contains("m1.py (27 lines): def f1_0(x): (1-3) and 8 more differing only in numbers, to line 27\n"), "{v}");
+        assert!(v.starts_with(&format!("4 files, {} bytes together, past the 1,400 characters shown at once: each file's lines (empty ones left out)", group(size))), "{v}");
+        // the copies in all three files: one block, shown once, named in each file
+        assert!(v.contains(&format!("block A, 2 lines, as at {} 1-2 (its copies differ only in their numbers; each copy's: fewer read FILE):\n  | def f0_0(x):\n  |     return x + 0 * 0 + 1234567\n", p(0))), "{v}");
+        assert_eq!(v.matches("  | def ").count(), 1, "{v}");
+        for k in 0..3 {
+            assert!(v.contains(&format!("== {} (27 lines)\n1-26: 9 copies of block A\n", p(k))), "{v}");
+        }
+        // a file of its own lines only, few of them: whole
+        assert!(v.contains(&format!("== {} (16 lines)\n1 def alpha(x):\n2     return x\n3 def beta(x):\n", p(3))) && v.contains("16     return x\n"), "{v}");
         assert!(v.ends_with("or print only what you need with a small python3 program. When the job asks for all of them whole: the same command with --max 28000.\n") && v.len() <= 1_400, "{v}");
         let v = outline_view(&files, size as usize, 1_400, false, "fewer");
         assert!(v.ends_with("All of them whole are more than the 28,000 characters one output shows: read them a few at a time, with --max 28000.\n"), "{v}");
         assert!(v.contains("Read the files the job needs: fewer read FILE (several: fewer read --max 28000 FILE...)"), "{v}");
+        // with less room: the file with the most own lines gives them up for its outline (its
+        // definitions, the first six); the copies stay named
+        let v = outline_view(&files, size as usize, 1_150, true, "fewer");
+        assert!(v.contains(&format!("== {} (16 lines): def alpha(x): (1-2); def beta(x): (3-4); def gamma(x): (5-6); def delta(x): (7-8); def epsilon(x): (9-10); def zeta(x): (11-12); and 2 more\n", p(3))), "{v}");
+        assert!(v.contains(&format!("== {} (27 lines)\n1-26: 9 copies of block A\n", p(1))) && v.len() <= 1_150, "{v}");
+        // a module's own lines around its copies: its imports, constants and small functions,
+        // where the answers to most questions about a module are (2026-11-26)
+        let mut t = String::from("\"\"\"Month end.\"\"\"\nimport json\n\nLIMIT = 1337\n\ndef close_month(rows):\n    return send_report(rows)\n\n");
+        for i in 0..5 {
+            t += &format!("def step_{i:02}(v):\n    return v * {i}\n\n");
+        }
+        let m = d.join("month.py");
+        std::fs::write(&m, &t).unwrap();
+        let v = outline_view(&[m.clone().into_os_string(), files[3].clone()], 500, 1_400, true, "fewer");
+        let mp = shown(&m.to_string_lossy());
+        assert!(v.contains(&format!("== {mp} (23 lines)\n1 \"\"\"Month end.\"\"\"\n2 import json\n4 LIMIT = 1337\n6 def close_month(rows):\n7     return send_report(rows)\n9-22: 5 copies of block A\n")), "{v}");
+        assert!(v.contains(&format!("block A, 2 lines, as at {mp} 9-10 (")), "{v}");
+        // and as an outline, when its own lines do not fit: the module lines first
+        let v = outline_view(&[m.into_os_string(), files[3].clone()], 500, 1_000, true, "fewer");
+        assert!(v.contains(&format!("== {mp} (23 lines): 1 \"\"\"Month end.\"\"\"; 2 import json; 4 LIMIT = 1337; def close_month(rows): (6-8); 9-22: 5 copies of block A\n")), "{v}");
         // a definition's line holding a key: hidden, as in every view
         let k = d.join("keys.js");
         std::fs::write(&k, "export const AWS_SECRET_ACCESS_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\";\nexport function f() {}\n").unwrap();
