@@ -3,7 +3,8 @@
 The numbers on the main page come from this benchmark. You can run it yourself.
 
 It makes a small made-up project and gives Claude Code the same 9 tasks twice: once alone, once
-with Fewer. It counts every token each run uses and checks each answer.
+with Fewer. It counts the tokens Claude Code reads in each run (input and cache) and checks each
+answer.
 
 ## Run it
 
