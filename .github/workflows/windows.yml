@@ -1,0 +1,17 @@
+name: windows
+on:
+  # (run by hand until Fewer builds on Windows: gh workflow run windows)
+  workflow_dispatch:
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build fewer-pack
+        run: cargo build --release
+      - name: Build fewer
+        run: cargo build --release
+        working-directory: search
+      - name: Test fewer
+        run: cargo test --release
+        working-directory: search

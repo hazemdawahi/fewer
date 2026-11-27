@@ -1,0 +1,10 @@
+2026-11-18T10:15:02.123456789Z stdout F Starting app version 1.4.2
+2026-11-18T10:15:02.223456789Z stderr F WARN config file missing, using defaults
+2026-11-18T10:15:03.000000001Z stdout P This line is longer than the runtime's buffer, so it was written in 
+2026-11-18T10:15:03.000000002Z stdout F two pieces
+2026-11-18T10:15:04.5Z stdout F {"level":"info","msg":"request served","path":"/api/orders","ms":12}
+2026-11-18T10:15:05Z stderr F Traceback (most recent call last):
+2026-11-18T10:15:05Z stderr F   File "/app/worker.py", line 12, in run
+2026-11-18T10:15:05Z stderr F     job()
+2026-11-18T10:15:05Z stderr F TimeoutError: job took too long
+2026-11-18T10:15:06Z stdout F worker restarted

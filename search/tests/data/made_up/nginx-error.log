@@ -1,0 +1,4 @@
+2026/11/18 10:15:02 [notice] 1#1: using the "epoll" event method
+2026/11/18 10:15:02 [notice] 1#1: nginx/1.25.3
+2026/11/18 10:15:04 [error] 29#29: *5 connect() failed (111: Connection refused) while connecting to upstream, client: 10.0.0.7, server: localhost, request: "POST /api/orders HTTP/1.1", upstream: "http://127.0.0.1:3000/api/orders", host: "localhost"
+2026/11/18 10:15:09 [warn] 29#29: *7 an upstream response is buffered to a temporary file

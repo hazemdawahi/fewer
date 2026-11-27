@@ -1,0 +1,4 @@
+time="2026-11-18T10:15:02Z" level=info msg="server started" port=8080
+time="2026-11-18T10:15:03Z" level=warn msg="slow query" duration=1.2s table=orders
+ts=2026-11-18T10:15:04.5Z lvl=error msg="payment failed" order=1234 err="card declined"
+time="2026-11-18T10:15:05Z" level=info msg="request served" path=/api/orders status=200

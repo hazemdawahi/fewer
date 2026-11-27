@@ -1,0 +1,7 @@
+﻿2026-11-18T10:15:02.1234567Z ##[group]Run actions/checkout@v4
+2026-11-18T10:15:02.1234568Z with:
+2026-11-18T10:15:02.1234569Z   repository: example/app
+2026-11-18T10:15:02.2234567Z ##[endgroup]
+2026-11-18T10:15:10.0000001Z [36;1mnpm test[0m
+2026-11-18T10:15:20.5000000Z npm ERR! code ELIFECYCLE
+2026-11-18T10:15:20.6000000Z ##[error]Process completed with exit code 1.

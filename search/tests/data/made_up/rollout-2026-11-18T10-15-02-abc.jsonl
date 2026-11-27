@@ -1,0 +1,4 @@
+{"timestamp":"2026-11-18T10:15:02.000Z","type":"session_meta","payload":{"id":"abc","timestamp":"2026-11-18T10:15:02.000Z","cwd":"/tmp/demo","originator":"codex_cli_rs","cli_version":"0.50.0"}}
+{"timestamp":"2026-11-18T10:15:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run the tests"}]}}
+{"timestamp":"2026-11-18T10:15:05.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"cargo\",\"test\"]}","call_id":"call_1"}}
+{"timestamp":"2026-11-18T10:15:09.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}

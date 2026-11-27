@@ -1,0 +1,14 @@
+*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
+Build fingerprint: 'google/sdk_gphone64_arm64/emu64a:14/UE1A.230829.036/10875347:userdebug/dev-keys'
+Revision: '0'
+ABI: 'arm64'
+Timestamp: 2026-11-18 10:15:02.123456789+0100
+Process uptime: 12s
+Cmdline: com.example.app
+pid: 4321, tid: 4321, name: example.app  >>> com.example.app <<<
+uid: 10190
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000
+Cause: null pointer dereference
+backtrace:
+      #00 pc 0000000000012345  /data/app/com.example.app/lib/arm64/libnative.so (crash+16)
+      #01 pc 0000000000023456  /data/app/com.example.app/lib/arm64/libnative.so (Java_com_example_Native_run+40)

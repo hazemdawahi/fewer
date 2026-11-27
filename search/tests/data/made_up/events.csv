@@ -1,0 +1,4 @@
+time,level,service,message
+2026-11-18T10:15:02Z,info,api,started
+2026-11-18T10:15:03Z,error,api,"db down, retrying"
+2026-11-18T10:15:04Z,warn,worker,"queue is ""slow"""

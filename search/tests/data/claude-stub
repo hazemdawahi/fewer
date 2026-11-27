@@ -1,0 +1,222 @@
+#!/bin/sh
+# claude-stub: stands in for Claude Code's `claude` command in the tests of
+# `fewer install` and `uninstall claude`. No test runs the real
+# claude: it would write into the real home folder (~/.claude.json).
+#
+# Each test copies this file into a folder of its own (in a check's scratch folder, or target/test-tmp),
+# and the stub keeps its state in that folder, never anywhere else:
+#   calls         every call's arguments, each followed by a NUL byte; each call ends with an
+#                 RS byte (0x1e)
+#   server-NAME   a registered server: scope=, command=, then arg= and env= lines
+#   fail-add      when present, `mcp add` fails (exit 1) and registers nothing
+#   fail-remove   when present, `mcp remove` fails (exit 1) and removes nothing
+#
+# Like Claude Code 2.1.287, it shows, adds and removes no MCP server while the settings
+# (settings.json in CLAUDE_CONFIG_DIR, else FEWER_CLAUDE_DIR; never the real ~/.claude: with
+# neither set, as the unit tests run it, it does not look) let none through:
+# an early version of fewer allows only the made-up server fewer-10x-none (seen on a real
+# machine: `mcp get` says there is none, `mcp add` "not allowed by enterprise policy"). Like
+# Claude Code 2.1.332, a server the settings deny by name (`deniedMcpServers`, as fewer
+# denies its own) is shown nowhere and cannot be added ("explicitly blocked by enterprise
+# policy"), yet `mcp remove` removes it (probed 2026-11-26).
+#
+# It knows `claude mcp get NAME`, `claude mcp add ...` and `claude mcp remove ...`, and reads
+# their arguments the way Claude Code 2.1.287 does (its commander parser, read from the
+# installed program's own code, never run): -s/--scope and -t/--transport take one value;
+# -e/--env and -H/--header take every following argument up to the next one that starts
+# with '-'; `--` ends the options; then NAME COMMAND [ARGS...]. Every env value must be
+# KEY=value. Its messages imitate claude's. POSIX sh and builtins only (and /bin/rm).
+
+case "$0" in
+*/*) d=${0%/*} ;;
+*) d=. ;;
+esac
+d=$(cd "$d" && pwd) || exit 97
+
+for a in "$@"; do
+    printf '%s\000' "$a"
+done >> "$d/calls"
+printf '\036' >> "$d/calls"
+
+fail() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+# whether the settings let no MCP server through (an early version of fewer)
+none_allowed() {
+    dir=${CLAUDE_CONFIG_DIR:-${FEWER_CLAUDE_DIR:-}}
+    [ -n "$dir" ] || return 1
+    s="$dir/settings.json"
+    [ -f "$s" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in *'"fewer-10x-none"'*) return 0 ;; esac
+    done < "$s"
+    return 1
+}
+
+# whether the settings deny the server named $1 by name (in `deniedMcpServers`)
+denied() {
+    dir=${CLAUDE_CONFIG_DIR:-${FEWER_CLAUDE_DIR:-}}
+    [ -n "$dir" ] || return 1
+    s="$dir/settings.json"
+    [ -f "$s" ] || return 1
+    in=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in *'"deniedMcpServers"'*) in=1 ;; esac
+        if [ "$in" = 1 ]; then
+            case "$line" in *"\"serverName\": \"$1\""*|*"\"serverName\":\"$1\""*) return 0 ;; esac
+            case "$line" in *']'*) in=0 ;; esac
+        fi
+    done < "$s"
+    return 1
+}
+
+if [ "${1:-}" != mcp ] || [ $# -lt 2 ]; then
+    printf 'claude-stub: only claude mcp get|add|remove are known here\n' >&2
+    exit 98
+fi
+sub=$2
+shift 2
+
+case "$sub" in
+get)
+    [ $# -eq 1 ] || fail "error: claude mcp get takes one name"
+    ! none_allowed || fail "No MCP server named \"$1\". Run \`claude mcp add\` to add one."
+    ! denied "$1" || fail "No MCP server named \"$1\". Run \`claude mcp add\` to add one."
+    f="$d/server-$1"
+    [ -f "$f" ] || fail "No MCP server found with name: \"$1\"."
+    scope='' command='' args='' envs=''
+    while IFS= read -r line; do
+        case "$line" in
+        scope=*) scope=${line#scope=} ;;
+        command=*) command=${line#command=} ;;
+        arg=*) args="$args ${line#arg=}" ;;
+        env=*) envs="$envs    ${line#env=}
+" ;;
+        esac
+    done < "$f"
+    printf '%s:\n  Scope: %s config\n  Status: (not checked by claude-stub)\n  Type: stdio\n' "$1" "$scope"
+    printf '  Command: %s\n  Args:%s\n' "$command" "$args"
+    if [ -n "$envs" ]; then
+        printf '  Environment:\n%s' "$envs"
+    fi
+    printf '\nTo remove this server, run: claude mcp remove "%s" -s %s\n' "$1" "$scope"
+    exit 0
+    ;;
+add)
+    scope=local want='' lit=0 n=0 name='' command=''
+    : > "$d/.add-args"
+    : > "$d/.add-env"
+    for a in "$@"; do
+        if [ "$lit" = 0 ]; then
+            case "$want" in
+            scope) scope=$a; want=''; continue ;;
+            transport) want=''; continue ;;
+            env | header)
+                case "$a" in
+                -?*) want='' ;;
+                *)
+                    if [ "$want" = env ]; then
+                        printf '%s\n' "$a" >> "$d/.add-env"
+                    fi
+                    continue
+                    ;;
+                esac
+                ;;
+            esac
+            case "$a" in
+            --) lit=1; continue ;;
+            -s | --scope) want=scope; continue ;;
+            --scope=*) scope=${a#--scope=}; continue ;;
+            -t | --transport) want=transport; continue ;;
+            --transport=*) continue ;;
+            -e | --env) want=env; continue ;;
+            --env=*) printf '%s\n' "${a#--env=}" >> "$d/.add-env"; continue ;;
+            -H | --header) want=header; continue ;;
+            -?*) fail "error: unknown option '$a'" ;;
+            esac
+        fi
+        n=$((n + 1))
+        case $n in
+        1) name=$a ;;
+        2) command=$a ;;
+        *) printf '%s\n' "$a" >> "$d/.add-args" ;;
+        esac
+    done
+    case "$want" in
+    scope | transport) fail "error: option '--$want <$want>' argument missing" ;;
+    esac
+    [ -n "$name" ] || fail "error: missing required argument 'name'"
+    [ -n "$command" ] || fail "error: missing required argument 'commandOrUrl'"
+    case "$scope" in
+    local | user | project) ;;
+    *) fail "Error: Invalid scope: $scope. Must be one of: local, user, project" ;;
+    esac
+    while IFS= read -r e; do
+        case "$e" in
+        =* | '') bad=1 ;;
+        *=*) bad=0 ;;
+        *) bad=1 ;;
+        esac
+        [ "$bad" = 0 ] || fail "Invalid environment variable format: $e, environment variables should be added as: -e KEY1=value1 -e KEY2=value2"
+    done < "$d/.add-env"
+    case "$name" in
+    *[!A-Za-z0-9_-]*) fail "Error: Invalid name $name. Names can only contain letters, numbers, hyphens, and underscores." ;;
+    esac
+    ! none_allowed || fail "Cannot add MCP server \"$name\": not allowed by enterprise policy"
+    ! denied "$name" || fail "Cannot add MCP server \"$name\": server is explicitly blocked by enterprise policy"
+    [ ! -f "$d/fail-add" ] || fail "Error: cannot write $d/.claude.json (claude-stub was told to fail)"
+    f="$d/server-$name"
+    if [ -f "$f" ]; then
+        IFS= read -r first < "$f"
+        fail "MCP server $name already exists in ${first#scope=} config"
+    fi
+    {
+        printf 'scope=%s\ncommand=%s\n' "$scope" "$command"
+        while IFS= read -r x; do printf 'arg=%s\n' "$x"; done < "$d/.add-args"
+        while IFS= read -r x; do printf 'env=%s\n' "$x"; done < "$d/.add-env"
+    } > "$f"
+    shown=$command
+    while IFS= read -r x; do shown="$shown $x"; done < "$d/.add-args"
+    printf 'Added stdio MCP server %s with command: %s to %s config\n' "$name" "$shown" "$scope"
+    printf 'File modified: %s/.claude.json\n' "$d"
+    exit 0
+    ;;
+remove)
+    scope='' want='' name=''
+    for a in "$@"; do
+        if [ "$want" = scope ]; then
+            scope=$a
+            want=''
+            continue
+        fi
+        case "$a" in
+        -s | --scope) want=scope ;;
+        --scope=*) scope=${a#--scope=} ;;
+        -?*) fail "error: unknown option '$a'" ;;
+        *)
+            [ -z "$name" ] || fail "error: too many arguments for 'remove'. Expected 1 argument but got more."
+            name=$a
+            ;;
+        esac
+    done
+    [ "$want" != scope ] || fail "error: option '-s, --scope <scope>' argument missing"
+    [ -n "$name" ] || fail "error: missing required argument 'name'"
+    ! none_allowed || fail "No MCP server found with name: \"$name\"."
+    f="$d/server-$name"
+    [ -f "$f" ] || fail "No MCP server found with name: \"$name\"."
+    IFS= read -r first < "$f"
+    have=${first#scope=}
+    [ -z "$scope" ] || [ "$scope" = "$have" ] || fail "No $scope-scoped MCP server found with name: $name"
+    [ ! -f "$d/fail-remove" ] || fail "Error: cannot write $d/.claude.json (claude-stub was told to fail)"
+    /bin/rm -f "$f"
+    if [ -n "$scope" ]; then shown=$name; else shown="\"$name\""; fi
+    printf 'Removed MCP server %s from %s config\nFile modified: %s/.claude.json\n' "$shown" "$have" "$d"
+    exit 0
+    ;;
+*)
+    printf 'claude-stub: claude mcp %s is not known here\n' "$sub" >&2
+    exit 98
+    ;;
+esac

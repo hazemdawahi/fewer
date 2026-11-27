@@ -1,0 +1,35 @@
+[package]
+name = "fewer-pack"
+version = "1.3.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A lossless compressor for log files: files, folders or streams, packed far smaller than general-purpose compressors"
+readme = "README.md"
+license = "Apache-2.0"
+# (open source, Apache 2.0; not on crates.io until the owner says so)
+publish = false
+
+[[bin]]
+name = "fewer-pack"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints.rust]
+# --cfg fewer_simd="scalar" | "sse2" | "sse42" | "avx2": the x86_64 code paths for tests
+# (src/engine/fl/x86.rs); builds without it use everything the processor has
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fewer_simd, values("scalar", "sse2", "sse42", "avx2"))', 'cfg(fewer_small)'] }
+
+[profile.release]
+# The plain build (cargo build --release, about 1.0 MB, as install.sh makes it). "s": the
+# smallest plain build without a big loss of speed
+opt-level = "s"
+lto = true
+codegen-units = 1
+# abort: no unwind tables or landing pads (about 150 KB). The engine's opener does not run
+# behind catch_unwind then: a panic (damaged input the engine does not check itself) ends the
+# program with a clear error and the exit status of an error, never a crash
+# (container::install_panic_exit). Tests (cargo test) always unwind: there the engine adapter
+# turns a panic into an error (engine::guarded).
+panic = "abort"
+strip = true

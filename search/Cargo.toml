@@ -1,0 +1,31 @@
+[package]
+name = "fewer"
+version = "1.0.0"
+# the shared files from ../src are edition 2024
+edition = "2024"
+# std File::lock
+rust-version = "1.89"
+description = "Fewer: 87% fewer tokens in Claude Code, with the same answers; the full text stays on your computer"
+license = "Apache-2.0"
+# (open source, Apache 2.0; not on crates.io until the owner says so)
+publish = false
+
+[[bin]]
+name = "fewer"
+path = "src/main.rs"
+
+[dependencies]
+
+# its own workspace root, so it never joins fewer's build (and builds into search/target/)
+[workspace]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fewer_simd, values("scalar", "sse2", "sse42", "avx2"))', 'cfg(fewer_small)'] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+# unwind: the engine's guard (engine::guarded) turns a panic on a damaged archive into an
+# error, and the MCP server survives a panic inside a tool
+panic = "unwind"

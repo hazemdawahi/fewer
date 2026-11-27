@@ -1,0 +1,3 @@
+I1118 10:15:02.123456       1 controller.go:123] Starting controller
+W1118 10:15:03.000001       1 reflector.go:456] watch of *v1.Pod ended with: too old resource version
+E1118 10:15:04.500000       1 controller.go:200] sync "default/web" failed with: timeout

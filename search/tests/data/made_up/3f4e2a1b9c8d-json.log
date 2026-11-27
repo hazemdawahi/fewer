@@ -1,0 +1,8 @@
+{"log":"Server starting on port 8080\n","stream":"stdout","time":"2026-11-18T10:15:02.123456789Z"}
+{"log":"\u001b[33mWARN\u001b[0m cache miss for key user:42\n","stream":"stderr","time":"2026-11-18T10:15:02.223456789Z"}
+{"log":"{\"level\":\"error\",\"msg\":\"db connect failed\",\"host\":\"db\"}\n","stream":"stderr","time":"2026-11-18T10:15:03.000000001Z"}
+{"log":"java.lang.IllegalStateException: pool closed\n","stream":"stderr","time":"2026-11-18T10:15:03.1Z"}
+{"log":"\tat com.example.Pool.get(Pool.java:42)\n","stream":"stderr","time":"2026-11-18T10:15:03.1Z"}
+{"log":"a very long line that docker split ","stream":"stdout","time":"2026-11-18T10:15:04Z"}
+{"log":"into two pieces\n","stream":"stdout","time":"2026-11-18T10:15:04Z"}
+{"log":"GET /health 200\n","stream":"stdout","time":"2026-11-18T10:15:05Z"}

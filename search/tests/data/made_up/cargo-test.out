@@ -1,0 +1,7 @@
+[1m[32m   Compiling[0m demo v0.1.0 (/tmp/demo)
+[1m[32m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+[1m[32m     Running[0m unittests src/lib.rs
+Downloading 10%Downloading 55%Downloading 100%
+running 2 tests
+test a ... [32mok[0m
+test b ... [31mFAILED[0m
