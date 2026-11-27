@@ -43,9 +43,11 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufRead, IsTerminal, Read, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::ExitStatusExt;
+use crate::portable::OsStrExt;
+// (Windows: only the tests set modes)
+#[cfg_attr(windows, allow(unused_imports))]
+use crate::portable::PermissionsExt;
+use crate::portable::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
@@ -208,8 +210,8 @@ const WIDTH: usize = 96;
 /// A path as the screens write it: the home folder as ~ (a command to copy keeps its whole path).
 fn tilde(p: &Path) -> String {
     let s = p.display().to_string();
-    match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() && h != "/" && (s == h || s.starts_with(&format!("{h}/"))) => format!("~{}", &s[h.len()..]),
+    match crate::defaults::home_var().map(|h| h.to_string_lossy().into_owned()) {
+        Some(h) if !h.is_empty() && h != "/" && (s == h || s.starts_with(&format!("{h}{}", std::path::MAIN_SEPARATOR))) => format!("~{}", &s[h.len()..]),
         _ => s,
     }
 }
@@ -257,17 +259,18 @@ pub fn cmd_install(args: Vec<OsString>) -> i32 {
 }
 
 /// Where fewer came from and where it was put (FEWER_FROM: the folder install.sh built it in, or
-/// "release" for the ready-made programs get.sh downloaded; FEWER_BIN_DIR; FEWER_PATH_FILE when
-/// the folder was added to PATH), into the store's config once fewer is in Claude Code (a no to
-/// install's question changes nothing): `fewer update` builds or downloads again, `fewer
-/// uninstall` removes the programs and that PATH line.
+/// "release" for the ready-made programs get.sh or get.ps1 downloaded; FEWER_BIN_DIR;
+/// FEWER_PATH_FILE when the folder was added to PATH in a shell's startup file, FEWER_PATH_USER
+/// when get.ps1 added it to the Windows user PATH), into the store's config once fewer is in
+/// Claude Code (a no to install's question changes nothing): `fewer update` builds or downloads
+/// again, `fewer uninstall` removes the programs and that PATH line or entry.
 fn record_places(s: &Setup) {
     let Ok(home) = &s.home else { return };
     if config::get(&config::read(home), "savers.on").is_none() {
         return;
     }
-    for (var, key) in [("FEWER_FROM", "install.from"), ("FEWER_BIN_DIR", "install.bin"), ("FEWER_PATH_FILE", "install.path_file")] {
-        if let Some(v) = std::env::var_os(var).and_then(|v| v.into_string().ok()).filter(|v| v.starts_with('/') || (key == "install.from" && v == "release")) {
+    for (var, key) in [("FEWER_FROM", "install.from"), ("FEWER_BIN_DIR", "install.bin"), ("FEWER_PATH_FILE", "install.path_file"), ("FEWER_PATH_USER", "install.path_user")] {
+        if let Some(v) = std::env::var_os(var).and_then(|v| v.into_string().ok()).filter(|v| Path::new(v).is_absolute() || (key == "install.from" && v == "release")) {
             let _ = config::set(home, key, &v);
         }
     }
@@ -296,12 +299,20 @@ fn remove_the_rest(s: &Setup, o: Opts, cfg: &[(String, String)], t: &mut Talk) -
     if let Some(bin) = config::get(cfg, "install.bin").map(PathBuf::from) {
         let mut gone = Vec::new();
         for name in ["fewer", "fewer-pack"] {
-            let p = bin.join(name);
+            let p = bin.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
             if p.is_file() {
-                match fs::remove_file(&p) {
+                match remove_program(&p) {
                     Ok(()) => gone.push(name),
                     Err(e) => writeln!(t.err, "fewer uninstall: {} could not be removed: {e}", p.display())?,
                 }
+            }
+        }
+        #[cfg(windows)]
+        if let Some(entry) = config::get(cfg, "install.path_user") {
+            match windows_path::remove(entry) {
+                Ok(true) => writeln!(t.out, "✓ Took {} out of your PATH.", tilde(Path::new(entry)))?,
+                Ok(false) => {}
+                Err(e) => writeln!(t.err, "fewer uninstall: your PATH: {e}")?,
             }
         }
         if !gone.is_empty() {
@@ -355,8 +366,55 @@ fn remove_the_rest(s: &Setup, o: Opts, cfg: &[(String, String)], t: &mut Talk) -
     Ok(0)
 }
 
-/// Where the one-line install's script is: each release publishes it as install.sh.
+/// Remove an installed program. On Windows a program that runs (this one, or fewer's MCP
+/// server inside Claude Code) cannot be removed, but it can be moved: into the temporary
+/// folder, where Windows clears it later.
+#[cfg(windows)]
+fn remove_program(p: &Path) -> io::Result<()> {
+    fs::remove_file(p).or_else(|e| {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let away = std::env::temp_dir().join(format!("removed-{}-{name}", std::process::id()));
+        fs::rename(p, &away).map_err(|_| e)
+    })
+}
+
+#[cfg(unix)]
+fn remove_program(p: &Path) -> io::Result<()> {
+    fs::remove_file(p)
+}
+
+/// The Windows user PATH (the registry's HKCU\Environment, through PowerShell): get.ps1 adds
+/// the programs' folder to it, `fewer uninstall` takes it out.
+#[cfg(windows)]
+mod windows_path {
+    /// Take `entry` out of the user PATH: true when it was there. The other entries are kept
+    /// as they are (unexpanded), and new terminals are told of the change.
+    pub fn remove(entry: &str) -> Result<bool, String> {
+        // (a quote inside a PowerShell '...' string is written twice)
+        let e = entry.replace('\'', "''");
+        let script = format!(
+            "$k = 'HKCU:\\Environment'; $p = (Get-Item $k).GetValue('Path', '', 'DoNotExpandEnvironmentNames'); \
+             $n = (@($p -split ';') | Where-Object {{ $_ -and ($_.TrimEnd('\\') -ine '{e}'.TrimEnd('\\')) }}) -join ';'; \
+             if ($n -ne $p) {{ Set-ItemProperty -Path $k -Name Path -Value $n -Type ExpandString; \
+             [Environment]::SetEnvironmentVariable('FEWER_PATH_NOTICE', '1', 'User'); [Environment]::SetEnvironmentVariable('FEWER_PATH_NOTICE', $null, 'User'); 'taken' }}"
+        );
+        let out = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &script]).stdin(std::process::Stdio::null()).output().map_err(|e| format!("PowerShell could not be run: {e}"))?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim() == "taken")
+    }
+}
+
+/// Where the one-line install's script is: each release publishes it as install.sh (Mac and
+/// Linux) and install.ps1 (Windows).
 pub const GET_URL: &str = "https://github.com/hazemdawahi/fewer/releases/latest/download/install.sh";
+pub const GET_PS1_URL: &str = "https://github.com/hazemdawahi/fewer/releases/latest/download/install.ps1";
+
+/// The one line that installs Fewer on this system.
+pub fn get_line() -> String {
+    if cfg!(windows) { format!("irm {GET_PS1_URL} | iex (in PowerShell)") } else { format!("curl -fsSL {GET_URL} | sh") }
+}
 
 /// `fewer update`: the new version, the way this one came (the ready-made programs downloaded
 /// again by the release's install.sh; else git pull where install.sh built it, built and
@@ -382,21 +440,33 @@ pub fn cmd_update(args: Vec<OsString>) -> i32 {
     // (the ready-made programs: downloaded again, to the folder they are in)
     if config::get(&cfg, "install.from") == Some("release") {
         println!("Getting the new version of Fewer...");
-        let mut sh = std::process::Command::new("sh");
-        sh.arg("-c").arg(format!("curl -fsSL {GET_URL} | sh -s -- --yes"));
+        #[cfg(unix)]
+        let (mut sh, shell) = {
+            let mut c = std::process::Command::new("sh");
+            c.arg("-c").arg(format!("curl -fsSL {GET_URL} | sh -s -- --yes"));
+            (c, "sh")
+        };
+        // (Windows: the release's install.ps1, its question answered; the program that runs
+        // this is renamed away, not written over)
+        #[cfg(windows)]
+        let (mut sh, shell) = {
+            let mut c = std::process::Command::new("powershell");
+            c.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &format!("irm {GET_PS1_URL} | iex; exit $LASTEXITCODE")]).env("FEWER_YES", "1");
+            (c, "PowerShell")
+        };
         if let Some(bin) = config::get(&cfg, "install.bin") {
             sh.env("FEWER_BIN_DIR", bin);
         }
         return match sh.status() {
             Ok(st) => st.code().unwrap_or(1),
             Err(e) => {
-                eprintln!("fewer update: sh could not be run: {e}");
+                eprintln!("fewer update: {shell} could not be run: {e}");
                 1
             }
         };
     }
     let Some(from) = config::get(&cfg, "install.from").map(PathBuf::from).filter(|f| f.join("install.sh").is_file()) else {
-        eprintln!("fewer update: where Fewer came from is not known (its installer records it). Install it again: curl -fsSL {GET_URL} | sh");
+        eprintln!("fewer update: where Fewer came from is not known (its installer records it). Install it again: {}", get_line());
         return 1;
     };
     println!("Getting the new version (git pull in {})...", tilde(&from));
@@ -481,11 +551,11 @@ fn own_path() -> Result<PathBuf, String> {
 /// The claude command FEWER_CLAUDE_BIN names: a path as it is, or a name looked up on PATH.
 /// Only absolute PATH folders are looked in, so a `claude` in the current folder is never run.
 pub(crate) fn find_claude(var: &OsStr, path: Option<&OsStr>) -> Result<PathBuf, String> {
-    if var.as_bytes().contains(&b'/') {
+    if var.as_bytes().contains(&b'/') || cfg!(windows) && var.as_bytes().iter().any(|&c| c == b'\\' || c == b':') {
         let p = PathBuf::from(var);
         return if is_program(&p) { Ok(p) } else { Err(format!("FEWER_CLAUDE_BIN={} is not a program", p.display())) };
     }
-    let found = path.into_iter().flat_map(std::env::split_paths).filter(|d| d.is_absolute()).map(|d| d.join(var)).find(|p| is_program(p));
+    let found = path.into_iter().flat_map(std::env::split_paths).filter(|d| d.is_absolute()).flat_map(|d| program_names(var).into_iter().map(move |n| d.join(n))).find(|p| is_program(p));
     // (the usual `claude` not found: Claude Code is not installed, or not on PATH)
     if found.is_none() && var == "claude" && !crate::defaults::dev() && std::env::var_os("FEWER_CLAUDE_BIN").is_none_or(|v| v.is_empty()) {
         return Err("Claude Code's `claude` was not found on PATH: install Claude Code first, or set FEWER_CLAUDE_BIN to the claude program".into());
@@ -493,8 +563,29 @@ pub(crate) fn find_claude(var: &OsStr, path: Option<&OsStr>) -> Result<PathBuf, 
     found.ok_or_else(|| format!("FEWER_CLAUDE_BIN={} was not found on PATH", var.to_string_lossy()))
 }
 
-/// A file with an execute bit: a program that can be run.
-fn is_program(p: &Path) -> bool {
+/// The file names a program named `name` (without a folder) may have: the name itself; on
+/// Windows with .exe or .cmd added (Claude Code's own installer makes claude.exe, npm makes
+/// claude.cmd) when the name has no extension of its own.
+pub(crate) fn program_names(name: &OsStr) -> Vec<OsString> {
+    if cfg!(windows) && Path::new(name).extension().is_none() {
+        return [".exe", ".cmd"]
+            .iter()
+            .map(|x| {
+                let mut n = name.to_os_string();
+                n.push(x);
+                n
+            })
+            .collect();
+    }
+    vec![name.to_os_string()]
+}
+
+/// A file with an execute bit: a program that can be run (on Windows: a file whose
+/// extension runs, .exe, .cmd, .bat or .com).
+pub(crate) fn is_program(p: &Path) -> bool {
+    #[cfg(windows)]
+    return p.is_file() && p.extension().and_then(OsStr::to_str).is_some_and(|x| ["exe", "cmd", "bat", "com"].iter().any(|r| x.eq_ignore_ascii_case(r)));
+    #[cfg(unix)]
     fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
@@ -536,6 +627,7 @@ fn remove_args() -> Vec<OsString> {
 /// A command line as a shell reads it: each argument as it is when it holds only ASCII
 /// letters, digits and `@%+=:,./_-`, else in single quotes ('\'' for a quote inside). Bytes
 /// that are not UTF-8 stay as they are.
+#[cfg(unix)]
 pub fn shell_line(prog: &OsStr, args: &[OsString]) -> Vec<u8> {
     let mut out = Vec::new();
     for (i, a) in std::iter::once(prog).chain(args.iter().map(OsString::as_os_str)).enumerate() {
@@ -558,6 +650,21 @@ pub fn shell_line(prog: &OsStr, args: &[OsString]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// A command line as PowerShell and cmd read it (Windows): each argument as it is when it
+/// holds only ASCII letters, digits and `@%+=:,./_-\`, else in double quotes (Windows names
+/// never hold a `"`).
+#[cfg(windows)]
+pub fn shell_line(prog: &OsStr, args: &[OsString]) -> Vec<u8> {
+    let words: Vec<String> = std::iter::once(prog)
+        .chain(args.iter().map(OsString::as_os_str))
+        .map(|a| {
+            let a = a.to_string_lossy();
+            if !a.is_empty() && a.bytes().all(|c| c.is_ascii_alphanumeric() || b"@%+=:,./_-\\".contains(&c)) { a.into_owned() } else { format!("\"{a}\"") }
+        })
+        .collect();
+    words.join(" ").into_bytes()
 }
 
 /// How long claude's output is still read once claude has ended: a process it started and
@@ -1410,6 +1517,8 @@ mod tests {
         let stub = d.join("stub").join("claude");
         fs::write(&stub, STUB).unwrap();
         fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+        #[cfg(windows)]
+        let stub = windows_stub(&stub);
         let home = d.join("home");
         let s = Setup {
             claude: Some(Ok(stub)),
@@ -1420,6 +1529,28 @@ mod tests {
             places: places(&[("FEWER_CLAUDE_DIR", d.join("claude").to_str().unwrap())]),
         };
         (d, s)
+    }
+
+    /// Windows: the stub (a POSIX sh script) run by Git for Windows' sh, through a claude.cmd
+    /// beside it (its own name written with `/`, so it finds its folder as on Mac and Linux).
+    #[cfg(windows)]
+    fn windows_stub(script: &Path) -> PathBuf {
+        let sh = [r"C:\Program Files\Git\bin\sh.exe", r"C:\Program Files\Git\usr\bin\sh.exe"].iter().map(PathBuf::from).find(|p| p.is_file()).expect("Git for Windows' sh.exe, to run the claude stub");
+        let cmd = script.with_extension("cmd");
+        fs::write(&cmd, format!("@\"{}\" \"{}\" %*\r\n@exit /b %ERRORLEVEL%\r\n", sh.display(), script.display().to_string().replace('\\', "/"))).unwrap();
+        cmd
+    }
+
+    /// The store's path as a hook's command in settings.json holds it: as it is (Windows: with
+    /// / in double quotes, which JSON writes \").
+    fn hook_home(p: &Path) -> String {
+        if cfg!(windows) { format!("\\\"{}\\\"", p.display().to_string().replace('\\', "/")) } else { p.display().to_string() }
+    }
+
+    /// A path below `base` as the screens show it (`tilde`), `rel`'s parts joined the system's
+    /// way.
+    fn shown(base: &Path, rel: &str) -> String {
+        tilde(&rel.split('/').fold(base.to_path_buf(), |p, c| p.join(c)))
     }
 
     /// The agents' places from these settings (the folders are never read by install).
@@ -1480,13 +1611,25 @@ mod tests {
         assert_eq!(args(get_args()), ["mcp", "get", "fewer"]);
         assert_eq!(args(remove_args()), ["mcp", "remove", "--scope", "user", "fewer"]);
         // as the shell reads them
-        let line = shell_line(OsStr::new("claude"), &add_args(Some(OsStr::new("/w/it's here")), Path::new("/a b/fewer")));
-        assert_eq!(line, b"claude mcp add --scope user fewer -e 'FEWER_HOME=/w/it'\\''s here' -- '/a b/fewer' mcp");
-        assert_eq!(shell_line(OsStr::new("/x/claude"), &[OsString::from(""), OsString::from("a$b"), OsString::from("~x")]), b"/x/claude '' 'a$b' '~x'");
-        let raw = OsStr::from_bytes(b"/tmp/\xff");
-        assert_eq!(shell_line(raw, &[]), b"'/tmp/\xff'");
+        #[cfg(unix)]
+        {
+            let line = shell_line(OsStr::new("claude"), &add_args(Some(OsStr::new("/w/it's here")), Path::new("/a b/fewer")));
+            assert_eq!(line, b"claude mcp add --scope user fewer -e 'FEWER_HOME=/w/it'\\''s here' -- '/a b/fewer' mcp");
+            assert_eq!(shell_line(OsStr::new("/x/claude"), &[OsString::from(""), OsString::from("a$b"), OsString::from("~x")]), b"/x/claude '' 'a$b' '~x'");
+            let raw = OsStr::from_bytes(b"/tmp/\xff");
+            assert_eq!(shell_line(raw, &[]), b"'/tmp/\xff'");
+        }
+        // (Windows: as PowerShell and cmd read it)
+        #[cfg(windows)]
+        {
+            let line = shell_line(OsStr::new("claude"), &add_args(Some(OsStr::new(r"C:\Users\me\my store")), Path::new(r"C:\Users\me\.local\bin\fewer.exe")));
+            assert_eq!(line, br#"claude mcp add --scope user fewer -e "FEWER_HOME=C:\Users\me\my store" -- C:\Users\me\.local\bin\fewer.exe mcp"#);
+            assert_eq!(shell_line(OsStr::new("claude"), &[OsString::from(""), OsString::from("a$b")]), br#"claude "" "a$b""#);
+        }
     }
 
+    // (Mac and Linux: the claude here is a sh script)
+    #[cfg(unix)]
     #[test]
     fn a_process_left_running_does_not_keep_us_waiting() {
         // a claude that leaves a process running with its output pipe open: what claude said
@@ -1507,6 +1650,8 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
+    // (Mac and Linux: a program is a file with an execute bit; Windows: below)
+    #[cfg(unix)]
     #[test]
     fn finds_claude() {
         let d = tmpdir("find");
@@ -1539,6 +1684,32 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn finds_claude_on_windows() {
+        let d = tmpdir("find-win");
+        let (a, b, c) = (d.join("a"), d.join("b"), d.join("c"));
+        for x in [&a, &b, &c] {
+            fs::create_dir_all(x).unwrap();
+        }
+        // a `claude` without an extension that runs is passed over; claude.cmd (npm) and
+        // claude.exe (Claude Code's own installer) are found, .exe first in a folder
+        fs::write(a.join("claude"), "#!/bin/sh\n").unwrap();
+        fs::write(b.join("claude.cmd"), "@echo off\r\n").unwrap();
+        fs::write(c.join("claude.cmd"), "@echo off\r\n").unwrap();
+        fs::write(c.join("claude.exe"), "MZ").unwrap();
+        let name = OsStr::new("claude");
+        let path = std::env::join_paths([a.as_path(), b.as_path(), c.as_path()]).unwrap();
+        assert_eq!(find_claude(name, Some(path.as_os_str())), Ok(b.join("claude.cmd")));
+        let path = std::env::join_paths([a.as_path(), c.as_path()]).unwrap();
+        assert_eq!(find_claude(name, Some(path.as_os_str())), Ok(c.join("claude.exe")));
+        // a path is taken as it is: a program by its extension
+        assert_eq!(find_claude(c.join("claude.exe").as_os_str(), None), Ok(c.join("claude.exe")));
+        assert!(find_claude(a.join("claude").as_os_str(), None).unwrap_err().contains("is not a program"));
+        assert!(find_claude(b.as_os_str(), None).is_err());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
     #[test]
     fn install_yes_and_yes() {
         let (d, s) = setup("yes-yes");
@@ -1552,10 +1723,10 @@ mod tests {
         // (fewer's changes shown before the one question that covers them, release check)
         assert!(flat(&out).contains("Settings you set yourself stay as they are; fewer off takes all of this back out. 3. Save your Claude Code chats ("), "{out}");
         // (the chats, saved by the same yes, said before the question too)
-        assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}/claude/projects) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}/config; to stop: fewer memory sessions off). 4. Add fewer's slash commands to Claude Code ({}/claude/commands): /fewer-tokens, /fewer-off, /fewer-on and /fewer-memory. Only you run them: Claude is not told about them. Register fewer and turn it on (the changes above)? [y/N] Added stdio MCP server fewer with command: ", tilde(&d), tilde(&home), tilde(&home), tilde(&d))), "{out}");
+        assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off). 4. Add fewer's slash commands to Claude Code ({}): /fewer-tokens, /fewer-off, /fewer-on and /fewer-memory. Only you run them: Claude is not told about them. Register fewer and turn it on (the changes above)? [y/N] Added stdio MCP server fewer with command: ", shown(&d, "claude/projects"), tilde(&home), shown(&home, "config"), shown(&d, "claude/commands"))), "{out}");
         assert_eq!(out.matches("[y/N]").count(), 1, "{out}");
         assert_eq!(out.matches("fewer on, 87% fewer tokens in our tests").count(), 1, "{out}");
-        assert!(out.contains(&format!("✓ Your Claude Code chats will be saved (sessions = on in {}/config).\n", tilde(&home))), "{out}");
+        assert!(out.contains(&format!("✓ Your Claude Code chats will be saved (sessions = on in {}).\n", shown(&home, "config"))), "{out}");
         assert!(out.ends_with(&format!("{USE_LINE}\n")));
         // the stub read the arguments as claude does
         let server = fs::read_to_string(d.join("stub").join("server-fewer")).unwrap();
@@ -1607,8 +1778,8 @@ mod tests {
         let (code, out, _) = talk(install, &s, Opts { dry_run: true, yes: false }, true, "y\ny\n");
         assert_eq!(code, 0);
         let file = d.join("home").join("config");
-        assert!(flat(&out).contains(&format!("2. Turn fewer on, 87% fewer tokens in our tests, with the same answers: it makes {}/claude/settings.json (there is none yet)", tilde(&d))), "{out}");
-        assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}/claude/projects) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off).", tilde(&d), tilde(&d.join("home")), tilde(&file))), "{out}");
+        assert!(flat(&out).contains(&format!("2. Turn fewer on, 87% fewer tokens in our tests, with the same answers: it makes {} (there is none yet)", shown(&d, "claude/settings.json"))), "{out}");
+        assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off).", shown(&d, "claude/projects"), tilde(&d.join("home")), tilde(&file))), "{out}");
         assert!(out.ends_with("Dry run: nothing was changed. `fewer install` asks \"Register fewer and turn it on (the changes above)? [y/N]\" and makes them on a yes; `fewer off` takes fewer back out.\n"), "{out}");
         assert!(!out.contains("Register it?") && !out.contains("[y/N] "));
         assert!(!d.join("claude").exists());
@@ -1638,7 +1809,7 @@ mod tests {
         assert_eq!(calls(&d)[3..], [get_call(), add_call(&d.join("home"))]);
         assert_eq!(config_rest(&d).as_deref(), Some("sessions = on\nsessions.codex = off\nsessions.aider = off\nsessions.cline = off\nsessions.cursor = off\n"));
         let settings = fs::read_to_string(d.join("claude").join("settings.json")).unwrap();
-        assert!(settings.contains(&format!("\"command\": \"FEWER_HOME={} {ME} hook post-bash\"", d.join("home").display())) && settings.contains("\"autoCompactWindow\": 100000"), "{settings}");
+        assert!(settings.contains(&format!("\"command\": \"FEWER_HOME={} {ME} hook post-bash\"", hook_home(&d.join("home")))) && settings.contains("\"autoCompactWindow\": 100000"), "{settings}");
         assert!(settings.contains("\"agent\": \"fewer-lean\"") && settings.contains("\"CLAUDE_CODE_DISABLE_WORKFLOWS\": \"1\"") && settings.contains("\"enableArtifact\": false") && !settings.contains("MCP_DESCRIPTION_LENGTH") && !settings.contains("ENABLE_CLAUDEAI_MCP_SERVERS") && settings.contains("\"deniedMcpServers\": [\n    {\n      \"serverName\": \"fewer\"\n    }\n  ]"), "{settings}");
         // CLAUDE.md files stay on: the developer's own rules keep applying
         assert!(!settings.contains("CLAUDE_CODE_DISABLE_CLAUDE_MDS"), "{settings}");
@@ -1699,7 +1870,11 @@ mod tests {
         fs::write(d2.join("stub").join("fail-add"), "").unwrap();
         let (code, out, err) = talk(install, &s, Opts::default(), true, "y\ny\n");
         assert_eq!(code, 1);
+        #[cfg(unix)]
         assert!(out.ends_with(&format!("Register fewer and turn it on (the changes above)? [y/N] Error: cannot write {}/.claude.json (claude-stub was told to fail)\n", d2.join("stub").display())), "{out}");
+        // (Windows: the stub runs in Git's sh, which writes its folder its own way, /d/a/...)
+        #[cfg(windows)]
+        assert!(out.contains("Register fewer and turn it on (the changes above)? [y/N] Error: cannot write ") && out.ends_with("/stub/.claude.json (claude-stub was told to fail)\n"), "{out}");
         let h = d2.join("home").display().to_string();
         assert_eq!(err, format!("fewer install: claude mcp add failed (exit status 1). To register fewer yourself, run:\n  claude mcp add --scope user fewer -e FEWER_HOME={h} -- {ME} mcp\n"));
         assert_eq!(config_text(&d2), None);
@@ -1707,6 +1882,10 @@ mod tests {
         // claude cannot be run at all
         let (d3, s) = setup("cannot-run");
         fs::write(d3.join("stub").join("claude"), "#!/no/such/shell\n").unwrap();
+        // (Windows: Git's sh runs any script, and a missing .cmd is still started, by cmd: a
+        // program that is not there)
+        #[cfg(windows)]
+        let s = Setup { claude: Some(Ok(d3.join("stub").join("no-such-claude.exe"))), ..s };
         let (code, _, err) = talk(install, &s, Opts::default(), true, "y\n");
         assert_eq!(code, 1);
         assert!(err.contains("cannot run") && err.contains("To register fewer yourself, run:\n  claude mcp add"), "{err}");
@@ -1858,7 +2037,8 @@ mod tests {
         let h = d.join("home").display().to_string();
         assert!(flat(&out).contains("✓ fewer is on (a copy of the file before this change: ") && flat(&out).ends_with(&flat(&format!("it applies to new Claude Code chats, and to old ones when you reopen them.\n✓ fewer's slash commands are in Claude Code: type /fewer in a chat (/fewer-tokens, /fewer-off, /fewer-on, /fewer-memory).\n{USE_LINE}"))), "{out}");
         let now = fs::read_to_string(&file).unwrap();
-        assert!(now.starts_with("{\n  \"model\": \"opus\",\n  \"autoCompactWindow\": 400000,\n  \"hooks\": {\n") && now.contains(&format!("FEWER_HOME={h} /opt/fewer/bin/fewer hook precompact")), "{now}");
+        let h_cmd = hook_home(Path::new(&h));
+        assert!(now.starts_with("{\n  \"model\": \"opus\",\n  \"autoCompactWindow\": 400000,\n  \"hooks\": {\n") && now.contains(&format!("FEWER_HOME={h_cmd} /opt/fewer/bin/fewer hook precompact")), "{now}");
         let copies = |d: &Path| -> Vec<PathBuf> { fs::read_dir(d.join("claude")).unwrap().map(|e| e.unwrap().path()).filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("settings.json.before-fewer-")).collect() };
         assert_eq!(copies(&d).len(), 1);
         assert_eq!(fs::read_to_string(&copies(&d)[0]).unwrap(), theirs);

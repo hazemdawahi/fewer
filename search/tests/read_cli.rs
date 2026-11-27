@@ -9,6 +9,21 @@ use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_fewer");
 
+/// What a program needs on Windows even in an environment built from nothing (its system
+/// folder, for the network too, and the temporary folder); nothing on Mac and Linux.
+fn windows_keep() -> Vec<(&'static str, std::ffi::OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| std::env::var_os(k).map(|v| (*k, v))).collect()
+}
+
+/// The PATH of the system's own folders: /usr/bin:/bin (Windows: the PATH as given, which holds
+/// its system folders, and Git's).
+fn sys_path() -> std::ffi::OsString {
+    if cfg!(windows) { std::env::var_os("PATH").unwrap_or_default() } else { "/usr/bin:/bin".into() }
+}
+
 #[test]
 fn the_configs_secret_shapes_are_hidden() {
     let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("read-{}-config", std::process::id()));
@@ -23,7 +38,7 @@ fn the_configs_secret_shapes_are_hidden() {
     fs::write(&file, format!("NAME=demo\nORDER_REF={value}\n")).unwrap();
     let read = |with_store: bool| {
         let mut c = Command::new(BIN);
-        c.env_clear().env("FEWER_DEV", "1").env("HOME", &home).env("PATH", "/usr/bin:/bin").arg("read").arg(&file);
+        c.env_clear().envs(windows_keep()).env("FEWER_DEV", "1").env("HOME", &home).env("PATH", sys_path()).arg("read").arg(&file);
         if with_store {
             c.env("FEWER_HOME", &store);
         }
@@ -48,7 +63,7 @@ fn several_files_with_a_line_cut_get_the_outline() {
     let (a, b) = (base.join("a.json"), base.join("b.txt"));
     fs::write(&a, format!("{{\"k\":\"{}\"}}\n", "v".repeat(9_900))).unwrap();
     fs::write(&b, "small\n").unwrap();
-    let o = Command::new(BIN).env_clear().env("FEWER_DEV", "1").env("HOME", base.join("home")).env("PATH", "/usr/bin:/bin").arg("read").arg(&a).arg(&b).output().unwrap();
+    let o = Command::new(BIN).env_clear().envs(windows_keep()).env("FEWER_DEV", "1").env("HOME", base.join("home")).env("PATH", sys_path()).arg("read").arg(&a).arg(&b).output().unwrap();
     let v = String::from_utf8(o.stdout).unwrap();
     assert!(v.starts_with("2 files,") && v.contains("--max 28000") && !v.contains("shown up to character"), "{v}");
     let _ = fs::remove_dir_all(&base);

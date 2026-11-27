@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use crate::portable::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::store;
@@ -280,6 +280,7 @@ mod tests {
         fs::set_permissions(path(&home), fs::Permissions::from_mode(0o600)).unwrap();
         assert!(set(&home, "sessions", "on").unwrap());
         assert_eq!(fs::read(path(&home)).unwrap(), b"# mine\nsessions = on\ndna = on\n");
+        #[cfg(unix)]
         assert_eq!(fs::metadata(path(&home)).unwrap().permissions().mode() & 0o777, 0o600);
         // no temporary file is left; a leftover of a writer that is gone is cleared
         fs::write(home.join("config.tmp-999999999"), b"x").unwrap();
@@ -291,7 +292,7 @@ mod tests {
         let real = base.join("dotfiles-config");
         fs::write(&real, b"sessions = off\n").unwrap();
         fs::remove_file(path(&home)).unwrap();
-        std::os::unix::fs::symlink(&real, path(&home)).unwrap();
+        crate::portable::symlink(&real, path(&home)).unwrap();
         assert!(set(&home, "sessions", "on").unwrap());
         assert!(fs::symlink_metadata(path(&home)).unwrap().file_type().is_symlink());
         assert_eq!(fs::read(&real).unwrap(), b"sessions = on\n");

@@ -12,6 +12,29 @@ jobs:
       - name: Build fewer
         run: cargo build --release
         working-directory: search
+      - name: Install with get.ps1, from these programs
+        # (as a person does: the script piped into PowerShell, its download from a folder here)
+        shell: powershell
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP 'release'
+          New-Item -ItemType Directory -Force $d | Out-Null
+          $zip = Join-Path $d 'fewer-x86_64-pc-windows-msvc.zip'
+          Compress-Archive -Force -Path target/release/fewer-pack.exe, search/target/release/fewer.exe -DestinationPath $zip
+          $h = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          Set-Content -Path (Join-Path $d 'SHA256SUMS') -Value "$h  fewer-x86_64-pc-windows-msvc.zip"
+          $env:FEWER_DOWNLOAD = ([Uri]$d).AbsoluteUri
+          $env:FEWER_BIN_DIR = Join-Path $env:RUNNER_TEMP 'bin'
+          $env:FEWER_HOME = Join-Path $env:RUNNER_TEMP 'store'
+          $env:FEWER_YES = '1'
+          Get-Content -Raw ./get.ps1 | Invoke-Expression
+          & (Join-Path $env:FEWER_BIN_DIR 'fewer.exe') --version
+          if (-not (Test-Path (Join-Path $env:FEWER_BIN_DIR 'fewer-pack.exe'))) { throw 'fewer-pack.exe was not installed' }
+          $p = (Get-Item 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+          if (-not (@($p -split ';') | Where-Object { $_ -ieq $env:FEWER_BIN_DIR })) { throw "the programs' folder is not on the user PATH: $p" }
+      - name: Test fewer-pack
+        if: success() || failure()
+        run: cargo test --release --no-fail-fast
       - name: Test fewer
-        run: cargo test --release
+        if: success() || failure()
+        run: cargo test --release --no-fail-fast
         working-directory: search

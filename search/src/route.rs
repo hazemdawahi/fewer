@@ -155,7 +155,7 @@ fn plain_name(name: &str) -> bool {
 
 /// A file written whole or not at all (a copy beside it, then renamed), only its owner reading it.
 fn keep(file: &Path, bytes: &[u8]) {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use crate::portable::{DirBuilderExt, OpenOptionsExt};
     let Some(dir) = file.parent() else { return };
     if std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).is_err() {
         return;

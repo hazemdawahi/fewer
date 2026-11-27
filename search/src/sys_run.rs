@@ -11,8 +11,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::mem::ManuallyDrop;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
+use crate::portable::OsStrExt;
+use crate::portable::OpenOptionsExt;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// A terminal's settings, kept as the C library's `struct termios` without reading its
@@ -164,6 +164,13 @@ pub fn take_terminal(fd: RawFd) -> io::Result<()> {
 pub fn new_session() -> io::Result<()> {
     // SAFETY: setsid only changes this process's session
     check(unsafe { setsid() }).map(|_| ())
+}
+
+/// Start `c` in a new session of its own (setsid in the child), away from our terminal.
+pub fn detach(c: &mut std::process::Command) {
+    use crate::portable::CommandExt;
+    // SAFETY: new_session makes one async-signal-safe call (setsid)
+    unsafe { c.pre_exec(new_session) };
 }
 
 // ---------------------------------------------------------------- terminal settings

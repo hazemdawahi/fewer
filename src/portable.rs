@@ -8,11 +8,16 @@
 //!   one;
 //! - a file's mode is 0o755 for a folder, 0o444 when read-only, else 0o644; a mode set keeps
 //!   only read-only or not; open and folder modes and open flags are not used.
+//!
+//! (Both programs use this file, each only some of it.)
+#![allow(dead_code, unused_imports)]
 
 #[cfg(unix)]
 pub use std::os::unix::ffi::{OsStrExt, OsStringExt};
 #[cfg(unix)]
 pub use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+pub use std::os::unix::process::{CommandExt, ExitStatusExt};
 
 #[cfg(windows)]
 pub use win::*;
@@ -106,10 +111,21 @@ mod win {
     }
 
     impl PermissionsExt for Permissions {
-        /// (Windows has no way to make a Permissions value from nothing: one read from the
-        /// temporary folder, then read-only or not as the mode says)
+        /// (Windows has no way to make a Permissions value from nothing: this program's own
+        /// file's, then read-only or not as the mode says. A folder's would not do: setting
+        /// its folder bit on a file fails, "The parameter is incorrect")
         fn from_mode(mode: u32) -> Permissions {
-            let mut p = std::fs::metadata(std::env::temp_dir()).or_else(|_| std::fs::metadata(".")).map(|m| m.permissions()).expect("a folder's permissions");
+            static BASE: std::sync::OnceLock<Permissions> = std::sync::OnceLock::new();
+            let mut p = BASE
+                .get_or_init(|| {
+                    std::env::current_exe().and_then(std::fs::metadata).map(|m| m.permissions()).unwrap_or_else(|_| {
+                        let f = std::env::temp_dir().join(format!("fewer-mode-{}", std::process::id()));
+                        let p = std::fs::write(&f, b"").and_then(|_| std::fs::metadata(&f)).map(|m| m.permissions()).expect("a file's permissions");
+                        let _ = std::fs::remove_file(&f);
+                        p
+                    })
+                })
+                .clone();
             p.set_readonly(mode & 0o222 == 0);
             p
         }
@@ -135,6 +151,53 @@ mod win {
         }
     }
 
+    /// Starting programs: Windows has no code run in the child before it starts (`pre_exec`:
+    /// a new session there; a child is not ended with its parent on Windows anyway), no
+    /// process groups, and no `exec` (the program is run, waited for, and its code is ours).
+    pub trait CommandExt {
+        /// # Safety
+        /// Nothing is run on Windows; the closure is dropped.
+        unsafe fn pre_exec<F>(&mut self, f: F) -> &mut Self
+        where
+            F: FnMut() -> std::io::Result<()> + Send + Sync + 'static;
+        fn process_group(&mut self, pgroup: i32) -> &mut Self;
+        fn exec(&mut self) -> std::io::Error;
+    }
+
+    impl CommandExt for std::process::Command {
+        unsafe fn pre_exec<F>(&mut self, _f: F) -> &mut Self
+        where
+            F: FnMut() -> std::io::Result<()> + Send + Sync + 'static,
+        {
+            self
+        }
+        fn process_group(&mut self, _pgroup: i32) -> &mut Self {
+            self
+        }
+        fn exec(&mut self) -> std::io::Error {
+            match self.status() {
+                Ok(st) => std::process::exit(st.code().unwrap_or(1)),
+                Err(e) => e,
+            }
+        }
+    }
+
+    /// An exit status: Windows has no signals, and a raw status is the exit code itself.
+    pub trait ExitStatusExt {
+        fn signal(&self) -> Option<i32>;
+        fn from_raw(raw: i32) -> Self;
+    }
+
+    impl ExitStatusExt for std::process::ExitStatus {
+        fn signal(&self) -> Option<i32> {
+            None
+        }
+        fn from_raw(raw: i32) -> std::process::ExitStatus {
+            // (a Unix wait status holds the code in its second byte)
+            <std::process::ExitStatus as std::os::windows::process::ExitStatusExt>::from_raw((raw >> 8) as u32)
+        }
+    }
+
     pub trait DirBuilderExt {
         fn mode(&mut self, mode: u32) -> &mut Self;
     }
@@ -148,9 +211,93 @@ mod win {
 
 /// A symbolic link at `link` naming `target` (on Windows a file link, which needs Developer
 /// Mode or an administrator; the error says so when it fails).
-pub fn symlink(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+pub fn symlink<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(target: P, link: Q) -> std::io::Result<()> {
     #[cfg(unix)]
     return std::os::unix::fs::symlink(target, link);
     #[cfg(windows)]
     return std::os::windows::fs::symlink_file(target, link);
+}
+
+/// A lock on an open file that others see, and that keeps no one from reading or writing it.
+/// Mac and Linux: std's (flock). Windows: std's lock covers the whole file, and reading a locked
+/// file there fails, even in this program, so the lock is on one byte far past any data.
+pub fn lock(f: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return f.lock();
+    #[cfg(windows)]
+    return file_lock::take(f, true, false).map_err(|e| match e {
+        std::fs::TryLockError::Error(e) => e,
+        std::fs::TryLockError::WouldBlock => std::io::ErrorKind::WouldBlock.into(),
+    });
+}
+
+/// A shared lock (as `lock`), now or not at all.
+pub fn try_lock_shared(f: &std::fs::File) -> Result<(), std::fs::TryLockError> {
+    #[cfg(unix)]
+    return f.try_lock_shared();
+    #[cfg(windows)]
+    return file_lock::take(f, false, true);
+}
+
+/// Let go of a lock taken by `lock` or `try_lock_shared`.
+pub fn unlock(f: &std::fs::File) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return f.unlock();
+    #[cfg(windows)]
+    return file_lock::give_back(f);
+}
+
+#[cfg(windows)]
+mod file_lock {
+    use std::os::windows::io::{AsRawHandle, RawHandle};
+
+    /// Windows' OVERLAPPED: here only where the locked byte is.
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: isize,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LockFileEx(h: RawHandle, flags: u32, reserved: u32, len_low: u32, len_high: u32, ov: *mut Overlapped) -> i32;
+        fn UnlockFileEx(h: RawHandle, reserved: u32, len_low: u32, len_high: u32, ov: *mut Overlapped) -> i32;
+    }
+
+    /// The byte locked: the last but one a file can have, never data.
+    fn place() -> Overlapped {
+        Overlapped { internal: 0, internal_high: 0, offset: 0xFFFF_FFFE, offset_high: 0xFFFF_FFFF, event: 0 }
+    }
+
+    pub fn take(f: &std::fs::File, exclusive: bool, now: bool) -> Result<(), std::fs::TryLockError> {
+        const EXCLUSIVE: u32 = 2;
+        const FAIL_IMMEDIATELY: u32 = 1;
+        let flags = if exclusive { EXCLUSIVE } else { 0 } | if now { FAIL_IMMEDIATELY } else { 0 };
+        let mut ov = place();
+        // SAFETY: locks one byte of a file we hold open; `ov` outlives the call (the handle is
+        // not opened for overlapped I/O, so the call ends with the lock taken or refused)
+        if unsafe { LockFileEx(f.as_raw_handle(), flags, 0, 1, 0, &mut ov) } != 0 {
+            return Ok(());
+        }
+        let e = std::io::Error::last_os_error();
+        // (ERROR_LOCK_VIOLATION: another handle holds it)
+        if e.raw_os_error() == Some(33) { Err(std::fs::TryLockError::WouldBlock) } else { Err(std::fs::TryLockError::Error(e)) }
+    }
+
+    pub fn give_back(f: &std::fs::File) -> std::io::Result<()> {
+        let mut ov = place();
+        // SAFETY: unlocks the byte `take` locked, on the same open file
+        if unsafe { UnlockFileEx(f.as_raw_handle(), 0, 1, 0, &mut ov) } != 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+    }
+}
+
+/// The parent process's id (0 on Windows, where std has none: callers then stop looking up).
+pub fn parent_id() -> u32 {
+    #[cfg(unix)]
+    return std::os::unix::process::parent_id();
+    #[cfg(windows)]
+    return 0;
 }

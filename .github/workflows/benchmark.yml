@@ -1,0 +1,100 @@
+name: benchmark
+# The public benchmark (bench/bench.py) on GitHub's clean machines: Claude Code 2.1.332 from its
+# own installer, Fewer built from this commit, logged in with the repository's secret
+# CLAUDE_CODE_OAUTH_TOKEN (made with `claude setup-token`). Nothing personal is on these machines:
+# no CLAUDE.md, settings, add-ons or connectors. The table goes to the run's summary, the runs'
+# results into its files. By hand: gh workflow run benchmark [-f systems=linux] [-f runs=3]
+on:
+  workflow_dispatch:
+    inputs:
+      systems:
+        description: "linux, windows or both"
+        default: "both"
+      runs:
+        description: "runs of each task with each setup"
+        default: "3"
+      tasks:
+        description: "tasks (T1,T7), or all"
+        default: "all"
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      # (one machine at a time: both at once would spend the plan's usage twice as fast)
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJSON(inputs.systems == 'linux' && '[{"os":"ubuntu-24.04","system":"linux"}]' || inputs.systems == 'windows' && '[{"os":"windows-2022","system":"windows"}]' || '[{"os":"ubuntu-24.04","system":"linux"},{"os":"windows-2022","system":"windows"}]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 340
+    defaults:
+      run:
+        shell: bash
+    env:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The login
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::Set the repository secret CLAUDE_CODE_OAUTH_TOKEN first (claude setup-token, then gh secret set CLAUDE_CODE_OAUTH_TOKEN)"
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: python3 on Windows too (the tasks name it)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $py = (Get-Command python).Source
+          Copy-Item $py (Join-Path (Split-Path $py) 'python3.exe')
+          python3 --version
+      - name: Build Fewer
+        run: |
+          cargo build --release --locked
+          (cd search && cargo build --release --locked)
+          x=""
+          if [ "$RUNNER_OS" = Windows ]; then x=.exe; fi
+          mkdir -p "$RUNNER_TEMP/fewer-bin"
+          cp "target/release/fewer-pack$x" "search/target/release/fewer$x" "$RUNNER_TEMP/fewer-bin/"
+          ls "$RUNNER_TEMP/fewer-bin"
+          echo "$RUNNER_TEMP/fewer-bin" >> "$GITHUB_PATH"
+      - name: Claude Code 2.1.332 (Linux)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s 2.1.332
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Claude Code 2.1.332 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) 2.1.332
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:USERPROFILE '.local\bin')
+      - name: Versions
+        run: |
+          claude --version
+          fewer --version
+          python3 --version
+      - name: Run the benchmark
+        env:
+          CLAUDE_CODE_GIT_BASH_PATH: ${{ runner.os == 'Windows' && 'C:\Program Files\Git\bin\bash.exe' || '' }}
+        run: |
+          set -- run "$RUNNER_TEMP/bench" --runs "${{ inputs.runs }}"
+          if [ "${{ inputs.tasks }}" != all ]; then set -- "$@" --tasks "${{ inputs.tasks }}"; fi
+          python3 bench/bench.py "$@"
+      - name: The table
+        if: success() || failure()
+        run: |
+          {
+            echo "## ${{ matrix.system }}"
+            python3 bench/bench.py report "$RUNNER_TEMP/bench"
+          } >> "$GITHUB_STEP_SUMMARY"
+          python3 bench/bench.py report "$RUNNER_TEMP/bench"
+      - uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: bench-${{ matrix.system }}
+          path: |
+            ${{ runner.temp }}/bench/results
+            ${{ runner.temp }}/bench/setup.json
+            ${{ runner.temp }}/bench/facts.json

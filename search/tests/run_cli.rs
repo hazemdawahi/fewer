@@ -14,12 +14,27 @@ use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fewer");
 
+/// What a program needs on Windows even in an environment built from nothing (its system
+/// folder, for the network too, and the temporary folder); nothing on Mac and Linux.
+fn windows_keep() -> Vec<(&'static str, std::ffi::OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| std::env::var_os(k).map(|v| (*k, v))).collect()
+}
+
+/// The PATH of the system's own folders: /usr/bin:/bin (Windows: the PATH as given, which holds
+/// its system folders, and Git's).
+fn sys_path() -> std::ffi::OsString {
+    if cfg!(windows) { std::env::var_os("PATH").unwrap_or_default() } else { "/usr/bin:/bin".into() }
+}
+
 /// $FEWER_PACK_BIN, else the repository's own build of fewer-pack (in $CARGO_TARGET_DIR when it
 /// is set, else ../target).
 fn pack_bin() -> PathBuf {
     match std::env::var_os("FEWER_PACK_BIN").filter(|v| !v.is_empty()) {
         Some(b) => PathBuf::from(b),
-        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join("fewer-pack"),
+        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join(format!("fewer-pack{}", std::env::consts::EXE_SUFFIX)),
     }
 }
 
@@ -52,8 +67,8 @@ impl Store {
     fn cmd(&self, args: &[&str]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
-            .env_clear().env("FEWER_DEV", "1")
-            .env("PATH", "/usr/bin:/bin")
+            .env_clear().envs(windows_keep()).env("FEWER_DEV", "1")
+            .env("PATH", sys_path())
             .env("HOME", self.base.join("fakehome"))
             .env("FEWER_HOME", &self.home)
             .env("FEWER_PACK_BIN", &self.fewer)
@@ -102,7 +117,12 @@ impl Drop for Store {
 fn exit_statuses_pass_through() {
     let Some(fewer) = fewer() else { return };
     let s = Store::new("exit", fewer);
-    for (script, code, field) in [("exit 0", 0, "\"exit\":0"), ("exit 1", 1, "\"exit\":1"), ("exit 3", 3, "\"exit\":3"), ("kill -TERM $$", 143, "\"signal\":15")] {
+    let mut cases = vec![("exit 0", 0, "\"exit\":0"), ("exit 1", 1, "\"exit\":1"), ("exit 3", 3, "\"exit\":3")];
+    // (Mac and Linux: a signal ends it; Windows has no signals)
+    if cfg!(unix) {
+        cases.push(("kill -TERM $$", 143, "\"signal\":15"));
+    }
+    for (script, code, field) in cases {
         let o = s.run(&["sh", "-c", script], true);
         assert_eq!(o.status.code(), Some(code), "{script}");
         let n = fs::read_to_string(s.dirs().0.join("runs.jsonl")).unwrap().lines().filter(|l| l.contains(field)).count();

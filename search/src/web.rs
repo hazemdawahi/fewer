@@ -27,17 +27,28 @@ use crate::json::{self, Json};
 const JOB_TIME: Duration = Duration::from_secs(300);
 
 /// What a child process keeps of the environment.
-const KEEP: [&str; 25] = [
+/// (CLAUDE_CODE_OAUTH_TOKEN: a login made with `claude setup-token`, as on a CI machine)
+const KEEP: [&str; 26] = [
     "HOME", "USER", "LOGNAME", "PATH", "TMPDIR", "LANG", "LC_ALL", "SHELL", "TERM", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
     "NODE_EXTRA_CA_CERTS", "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_SAFE_MODE", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
-    "MAX_MCP_OUTPUT_TOKENS",
+    "MAX_MCP_OUTPUT_TOKENS", "CLAUDE_CODE_OAUTH_TOKEN",
 ];
 /// The limit on a tool's answer given to the one-step helper (tokens): its model never reads the
 /// answer (it stops after the call), fewer keeps it whole and shows the part that is needed.
 const ASK_OUTPUT_TOKENS: u64 = 2_000_000;
+/// What a child process keeps on Windows too: what Windows' own programs and Node need to start
+/// (no SystemRoot: no network) and where Claude Code finds its folder and Git Bash.
+#[cfg(windows)]
+const KEEP_WINDOWS: [&str; 20] = [
+    "SystemRoot", "SystemDrive", "windir", "ComSpec", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "HOMEDRIVE", "HOMEPATH",
+    "USERNAME", "USERDOMAIN", "COMPUTERNAME", "PROCESSOR_ARCHITECTURE", "CLAUDE_CODE_GIT_BASH_PATH",
+];
+#[cfg(unix)]
+const KEEP_WINDOWS: [&str; 0] = [];
+
 fn child(cmd: &mut Command) {
     cmd.env_clear();
-    for k in KEEP {
+    for k in KEEP.iter().chain(KEEP_WINDOWS.iter()) {
         if let Some(v) = std::env::var_os(k) {
             cmd.env(k, v);
         }
@@ -97,7 +108,7 @@ struct SessionFlags {
 /// The command line of the claude this command runs under (the first claude above it): None when
 /// there is none (a command run by hand).
 fn session_claude_args() -> Option<Vec<String>> {
-    let mut pid = std::os::unix::process::parent_id();
+    let mut pid = crate::portable::parent_id();
     for _ in 0..16 {
         if pid <= 1 {
             return None;
@@ -2939,7 +2950,7 @@ const ALWAYS_ASKING: &[&str] = &["mean", "both", "quote", "quot", "verbatim", "e
 
 /// A file of the user's alone (0600, a new name) in the store's tmp folder, holding `text`.
 fn private_file(what: &str, text: &str) -> Result<PathBuf, String> {
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use crate::portable::{DirBuilderExt, OpenOptionsExt};
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SEQ: AtomicUsize = AtomicUsize::new(0);
     let dir = crate::store::home().map_err(|e| e.to_string())?.join("tmp");

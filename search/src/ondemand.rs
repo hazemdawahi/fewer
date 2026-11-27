@@ -636,7 +636,7 @@ mod tests {
         put("repo/.claude/skills/verify/SKILL.md", "---\nname: verify\n---\nthe project's verify\n");
         let claude = d.join("claude");
         let folders = [d.join("repo").join("sub"), d.join("repo")];
-        let found = |n: &str| find_skill(n, Some(&claude), &folders).map(|p| p.strip_prefix(&d).unwrap().display().to_string());
+        let found = |n: &str| find_skill(n, Some(&claude), &folders).map(|p| p.strip_prefix(&d).unwrap().display().to_string().replace('\\', "/"));
         // the user's own first
         assert_eq!(found("verify").as_deref(), Some("claude/skills/gstack/verify/SKILL.md"));
         assert_eq!(found("plain").as_deref(), Some("claude/skills/plain/SKILL.md"));

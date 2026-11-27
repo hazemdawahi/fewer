@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-6366F1?style=flat-square" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.0.0-818CF8?style=flat-square" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/version-1.1.0-818CF8?style=flat-square" alt="Version 1.1.0">
 </p>
 
 <p align="center">
@@ -79,10 +79,16 @@ computer.
 
 ## Install
 
-Works on macOS and Linux. All you need is [Claude Code](https://claude.com/claude-code).
+Works on macOS, Linux and Windows. All you need is [Claude Code](https://claude.com/claude-code).
 
 ```sh
 curl -fsSL https://github.com/hazemdawahi/fewer/releases/latest/download/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/hazemdawahi/fewer/releases/latest/download/install.ps1 | iex
 ```
 
 It shows every change it will make, then asks you once. Then open a new Claude Code chat.

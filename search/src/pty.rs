@@ -28,7 +28,7 @@
 use std::ffi::OsString;
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::CommandExt;
+use crate::portable::CommandExt;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 

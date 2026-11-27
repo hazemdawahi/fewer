@@ -636,16 +636,18 @@ impl Drop for Extractor {
 
 // ---------------------------------------------------------------- --rm for a folder
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn fchdir(fd: i32) -> i32;
 }
 
 #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
 const O_NONBLOCK: i32 = 0x0004;
-#[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))))]
 const O_NONBLOCK: i32 = 0o4000;
 
 /// Is this entry (just read with lstat) still exactly what was packed?
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 fn unchanged(e: &Entry, md: &fs::Metadata) -> bool {
     let same_id = (md.dev(), md.ino()) == e.id;
@@ -658,6 +660,7 @@ fn unchanged(e: &Entry, md: &fs::Metadata) -> bool {
 
 /// Open a folder by its name in the current folder (never through a link, never blocking
 /// on a pipe) and check it is the folder that was scanned.
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 fn open_scanned_dir(name: &Path, e: &Entry, follow: bool) -> Result<fs::File, String> {
     let flags = O_NONBLOCK | if follow { 0 } else { O_NOFOLLOW };
@@ -683,6 +686,15 @@ fn open_scanned_dir(name: &Path, e: &Entry, follow: bool) -> Result<fs::File, St
 /// and modification time. So a link swapped in for a folder is never followed, and a file
 /// that grew, was rewritten or was rotated is kept. Folders are removed once empty.
 /// Returns what was kept, and why (empty when everything was removed).
+///
+/// On Windows nothing is removed yet (it has no way to enter a folder by an open handle):
+/// the folder is kept, and the message says so.
+#[cfg(windows)]
+pub fn remove_packed(root: &Path, _entries: &[Entry]) -> Vec<String> {
+    vec![format!("kept {}: --rm for a folder is not on Windows yet; the archive is complete", root.display())]
+}
+
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 pub fn remove_packed(root: &Path, entries: &[Entry]) -> Vec<String> {
     use std::os::fd::AsRawFd;
@@ -730,6 +742,7 @@ pub fn remove_packed(root: &Path, entries: &[Entry]) -> Vec<String> {
 }
 
 /// Remove what was packed inside the folder `dir` (entry `d`), deepest first.
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 fn clear_dir(dir: &fs::File, d: usize, entries: &[Entry], kids: &[Vec<usize>], root: &Path, kept: &mut Vec<String>) {
     use std::os::fd::AsRawFd;

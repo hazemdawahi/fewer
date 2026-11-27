@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, IsTerminal, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use crate::portable::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 

@@ -588,8 +588,10 @@ fn projects(ctx: &Ctx, home: &Path, project: Option<&str>) -> Result<Vec<Project
             if let Some(x) = all.iter().find(|x| x.pid == p) {
                 return Ok(vec![x.clone()]);
             }
-            if p.starts_with('/') {
-                let root = PathBuf::from(p.trim_end_matches('/'));
+            if Path::new(p).is_absolute() {
+                // (Windows: C:\work\ too)
+                let ends: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
+                let root = PathBuf::from(p.trim_end_matches(ends));
                 let root = if root.as_os_str().is_empty() { PathBuf::from("/") } else { root };
                 let (pid, exists) = store::pid_for(home, &root);
                 if let Some(x) = all.iter().find(|x| x.pid == pid).filter(|_| exists) {

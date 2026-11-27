@@ -20,6 +20,16 @@ die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 
 os=$(uname -s)
 arch=$(uname -m)
+case "$os" in
+    MINGW* | MSYS* | CYGWIN*)
+        # (Windows, in Git Bash, as Claude Code's Bash tool is there: the release's install.ps1
+        # does it, through PowerShell, in the same way; --yes answers its question too)
+        yes=0
+        for a in "$@"; do [ "$a" = --yes ] && yes=1; done
+        command -v powershell >/dev/null 2>&1 || die "on Windows, run this in PowerShell: irm https://github.com/$repo/releases/latest/download/install.ps1 | iex"
+        FEWER_YES=$yes exec powershell -NoProfile -ExecutionPolicy Bypass -Command "irm $base/install.ps1 | iex; exit \$LASTEXITCODE"
+        ;;
+esac
 case "$os-$arch" in
     Darwin-arm64) target=aarch64-apple-darwin ;;
     Darwin-x86_64) target=x86_64-apple-darwin ;;

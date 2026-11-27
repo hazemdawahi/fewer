@@ -61,9 +61,14 @@ mod answer;
 mod capture;
 mod dev; // developer commands for checks/run_check.py
 mod pack; // `fewer pack-pending`
+#[cfg(unix)]
 mod pty; // `run` on a pseudo-terminal
 mod run; // `fewer run`
+#[cfg(unix)]
 mod sys_run; // the C calls `run` needs: pseudo-terminals, terminal modes, poll, signals
+#[cfg(windows)]
+#[path = "sys_run_win.rs"]
+mod sys_run; // Windows: a background process away from the console; no terminal, no signals
 mod tags; // a run's git tags
 // The index pass, the catalogs (.cat) and the key registry.
 mod catalog;

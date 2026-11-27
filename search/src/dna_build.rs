@@ -29,8 +29,7 @@
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::CommandExt;
+use crate::portable::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -298,8 +297,7 @@ fn spawn_pass(pid: &str, ids: &[u64]) -> io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut c = Command::new(exe);
     c.arg("dna-pass").arg(pid).args(ids.iter().map(u64::to_string)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: new_session makes one async-signal-safe call (setsid)
-    unsafe { c.pre_exec(sys_run::new_session) };
+    sys_run::detach(&mut c);
     c.spawn().map(|_| ())
 }
 

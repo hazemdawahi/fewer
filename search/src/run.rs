@@ -30,12 +30,16 @@
 //!
 //! `run` is dispatched before engine::clear_env_switches(): the command gets the
 //! environment exactly as given.
+//!
+//! On Windows: always pipes (no pseudo-terminal), each pipe read by a thread of its own, and
+//! Ctrl-C reaches only the command (it shares the console), so `run` records its end.
 
 use std::ffi::OsString;
 use std::fs;
 use std::io;
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use crate::portable::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
@@ -44,7 +48,9 @@ use crate::capture;
 use crate::json::Json;
 use crate::secrets::{Extra, Hider, Stream};
 use crate::store::{self, Project};
-use crate::sys_run::{self, POLLERR, POLLHUP, POLLIN, POLLNVAL, PollFd, SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, Signals};
+use crate::sys_run;
+#[cfg(unix)]
+use crate::sys_run::{POLLERR, POLLHUP, POLLIN, POLLNVAL, PollFd, SIGCHLD, SIGHUP, SIGINT, SIGQUIT, SIGTERM, Signals};
 use crate::tags;
 
 const USAGE: &str = "usage: fewer run [--short] [--] COMMAND [ARGS...]";
@@ -72,6 +78,7 @@ fn pass_through() -> bool {
 }
 
 /// The signals `run` catches (into sys_run's signal pipe).
+#[cfg(unix)]
 pub const CAUGHT: [i32; 5] = [SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGCHLD];
 
 /// How the command ended, what was hidden from its output, and why saving stopped early when
@@ -173,8 +180,32 @@ fn parse(mut args: Vec<OsString>) -> Result<(Vec<OsString>, bool), i32> {
 /// Run the command in place of this process: nothing is saved. Returns only when the
 /// command cannot be started (127 when it is not found, 126 otherwise, as shells do).
 fn exec_plain(argv: &[OsString]) -> i32 {
-    let e = Command::new(&argv[0]).args(&argv[1..]).exec();
+    let e = Command::new(program(&argv[0])).args(&argv[1..]).exec();
     not_started(&argv[0], &e)
+}
+
+/// The program to start for a command's first word: the word itself; on Windows a bare name
+/// that is no .exe on PATH is looked for there as a .cmd, .bat or .com file too (npm, yarn and
+/// many other tools are .cmd files there, which Windows does not start by their bare name).
+#[cfg(windows)]
+fn program(word: &std::ffi::OsStr) -> OsString {
+    let p = Path::new(word);
+    if p.components().count() != 1 || p.extension().is_some() {
+        return word.to_os_string();
+    }
+    let dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH").map(|v| std::env::split_paths(&v).filter(|d| d.is_absolute()).collect()).unwrap_or_default();
+    for ext in ["exe", "cmd", "bat", "com"] {
+        if let Some(found) = dirs.iter().map(|d| d.join(p).with_extension(ext)).find(|f| f.is_file()) {
+            // (an .exe: as Windows itself finds it)
+            return if ext == "exe" { word.to_os_string() } else { found.into_os_string() };
+        }
+    }
+    word.to_os_string()
+}
+
+#[cfg(unix)]
+fn program(word: &std::ffi::OsStr) -> OsString {
+    word.to_os_string()
 }
 
 fn not_started(prog: &std::ffi::OsStr, e: &io::Error) -> i32 {
@@ -220,6 +251,8 @@ struct Setup {
     id: u64,
     cap: capture::Writer,
     extras: Vec<Extra>,
+    // (Windows: always false; run reads pipes there)
+    #[cfg_attr(windows, allow(dead_code))]
     tty: bool,
 }
 
@@ -302,6 +335,12 @@ impl Setup {
     /// Run the command, record its end, start pack-pending; the exit status to return.
     fn go(mut self, argv: &[OsString], short: bool) -> i32 {
         let started = std::time::Instant::now();
+        #[cfg(windows)]
+        let r = {
+            sys_run::leave_ctrl_c_to_the_command();
+            run_pipes(argv, &mut self.cap, &self.extras)
+        };
+        #[cfg(unix)]
         let sig = match Signals::catch(&CAUGHT) {
             Ok(s) => s,
             Err(e) => {
@@ -313,6 +352,7 @@ impl Setup {
                 return exec_plain(argv);
             }
         };
+        #[cfg(unix)]
         let r = if self.tty { crate::pty::run_pty(argv, &mut self.cap, &self.extras, &sig) } else { run_pipes(argv, &mut self.cap, &self.extras, &sig) };
         let sum = self.cap.finish();
         let mut f = Json::o(vec![("state", "packing".into()), ("end", Json::from(crate::times::now_ms())), ("bytes", Json::from(sum.bytes)), ("lines", Json::from(sum.lines))]);
@@ -376,6 +416,7 @@ impl Setup {
         // (the end is recorded before the capture is unlocked: pack-pending never takes a
         // finished run for one whose writer died)
         drop(self.cap);
+        #[cfg(unix)]
         drop(sig);
         if std::env::var_os("FEWER_TEST_NO_PACK").is_none_or(|v| v.is_empty())
             && let Err(e) = crate::pack::spawn_detached()
@@ -391,6 +432,7 @@ impl Setup {
 /// Pipes mode: the command's stdout and stderr each go at once to ours, unchanged, and to
 /// the capture through their own secrets::Stream, as whole lines. Reads until both pipes
 /// end (as `tee` does: a background process that keeps them open keeps `run` waiting too).
+#[cfg(unix)]
 pub fn run_pipes(argv: &[OsString], cap: &mut capture::Writer, extras: &[Extra], sig: &Signals) -> io::Result<Done> {
     let mut child = Command::new(&argv[0]).args(&argv[1..]).stdin(Stdio::inherit()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let mut pipes: [Option<OwnedFd>; 2] = [child.stdout.take().map(OwnedFd::from), child.stderr.take().map(OwnedFd::from)];
@@ -459,6 +501,78 @@ pub fn run_pipes(argv: &[OsString], cap: &mut capture::Writer, extras: &[Extra],
         Some(s) => s,
         None => wait_for(&mut child, &mut note),
     };
+    Ok(Done { status, hidden: streams.iter().map(|s| s.counts().total()).sum(), note })
+}
+
+/// Pipes mode on Windows, as on Mac and Linux (above), with a thread reading each pipe:
+/// Windows has no poll for pipes. Our stdout and stderr get the bytes as they come (a
+/// console that cannot take some, as not UTF-8, gets them with U+FFFD in their place).
+#[cfg(windows)]
+pub fn run_pipes(argv: &[OsString], cap: &mut capture::Writer, extras: &[Extra]) -> io::Result<Done> {
+    use std::io::{Read, Write};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    let mut child = Command::new(program(&argv[0])).args(&argv[1..]).stdin(Stdio::inherit()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let (tx, rx) = mpsc::channel::<(usize, Option<Vec<u8>>)>();
+    let mut pipes: Vec<Box<dyn Read + Send>> = Vec::new();
+    if let Some(o) = child.stdout.take() {
+        pipes.push(Box::new(o));
+    }
+    if let Some(e) = child.stderr.take() {
+        pipes.push(Box::new(e));
+    }
+    for (s, mut pipe) in pipes.into_iter().enumerate() {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 64 << 10];
+            loop {
+                match pipe.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send((s, Some(buf[..n].to_vec()))).is_err() {
+                            return;
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => break,
+                }
+            }
+            let _ = tx.send((s, None));
+        });
+    }
+    drop(tx);
+    let mut streams = [Stream::new(Hider::new(extras.to_vec())), Stream::new(Hider::new(extras.to_vec()))];
+    let mut pass = [pass_through(), pass_through()];
+    let mut hidden = Vec::new();
+    let show = |s: usize, data: &[u8]| -> io::Result<()> {
+        let mut out: Box<dyn Write> = if s == 0 { Box::new(io::stdout().lock()) } else { Box::new(io::stderr().lock()) };
+        match out.write_all(data) {
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => out.write_all(String::from_utf8_lossy(data).as_bytes()),
+            r => r,
+        }?;
+        out.flush()
+    };
+    loop {
+        match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok((s, Some(data))) => {
+                if pass[s] && show(s, &data).is_err() {
+                    pass[s] = false;
+                }
+                streams[s].push(&data, &mut hidden);
+                cap.write(s == 1, &hidden);
+                hidden.clear();
+            }
+            Ok((s, None)) => {
+                streams[s].finish(&mut hidden);
+                cap.write(s == 1, &hidden);
+                hidden.clear();
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+        cap.tick();
+    }
+    let mut note = None;
+    let status = wait_for(&mut child, &mut note);
     Ok(Done { status, hidden: streams.iter().map(|s| s.counts().total()).sum(), note })
 }
 

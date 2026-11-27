@@ -63,7 +63,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read};
 use std::ops::Range;
-use std::os::unix::fs::MetadataExt;
+use crate::portable::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};

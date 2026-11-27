@@ -8,13 +8,19 @@
 //!   reads throttled, after every other kind of work.
 //! - Linux: setpriority(PRIO_PROCESS, 0, 19), read back with getpriority. On Linux the nice
 //!   value belongs to the calling thread, not to the whole process.
+//! - Windows: SetThreadPriority(THREAD_PRIORITY_IDLE), read back with GetThreadPriority. Windows
+//!   has no load average: the load is the share of time the cores were busy since the last
+//!   reading (GetSystemTimes), times the number of cores.
 //!
 //! A test switch replaces getloadavg (never set in normal use): FEWER_TEST_LOAD names a file
 //! that holds the 1-minute load to use, read at every check, so a check can change it while a
 //! builder runs. A file that cannot be read as a number counts as a load too high to build.
 
-use std::ffi::{OsStr, c_int};
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::ffi::c_int;
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn getloadavg(loads: *mut f64, n: c_int) -> c_int;
 }
@@ -33,7 +39,7 @@ mod prio {
     pub const BACKGROUND: c_uint = 0x09;
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod prio {
     use std::ffi::{c_int, c_uint};
 
@@ -45,6 +51,53 @@ mod prio {
     pub const PRIO_PROCESS: c_int = 0;
     /// The lowest priority, nice 19.
     pub const BACKGROUND: c_int = 19;
+}
+
+#[cfg(windows)]
+mod prio {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn GetCurrentThread() -> isize;
+        pub fn SetThreadPriority(thread: isize, prio: i32) -> i32;
+        pub fn GetThreadPriority(thread: isize) -> i32;
+        pub fn GetSystemTimes(idle: *mut u64, kernel: *mut u64, user: *mut u64) -> i32;
+    }
+
+    /// THREAD_PRIORITY_IDLE.
+    pub const BACKGROUND: i32 = -15;
+
+    /// The time the cores were idle, and in all (kernel time counts the idle time too), in
+    /// 100 ns units.
+    fn times() -> Option<(u64, u64)> {
+        let (mut idle, mut kernel, mut user) = (0u64, 0u64, 0u64);
+        // SAFETY: GetSystemTimes writes three FILETIMEs (two 32-bit halves each) into the locals
+        (unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) } != 0).then_some((idle, kernel + user))
+    }
+
+    /// The share of time the cores were busy since the last reading (at least a second
+    /// before; until then the last answer), times the number of cores. The first reading
+    /// measures over 200 ms.
+    pub fn load(cores: usize) -> Option<f64> {
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+        static LAST: Mutex<Option<(Instant, u64, u64, f64)>> = Mutex::new(None);
+        let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        let (i0, all0) = match *last {
+            Some((t, _, _, l)) if t.elapsed() < Duration::from_secs(1) => return Some(l),
+            Some((_, i, a, _)) => (i, a),
+            None => {
+                let first = times()?;
+                std::thread::sleep(Duration::from_millis(200));
+                first
+            }
+        };
+        let (i1, all1) = times()?;
+        let (di, da) = (i1.saturating_sub(i0), all1.saturating_sub(all0));
+        let busy = if da == 0 { 0.0 } else { 1.0 - di as f64 / da as f64 };
+        let l = busy.clamp(0.0, 1.0) * cores as f64;
+        *last = Some((Instant::now(), i1, all1, l));
+        Some(l)
+    }
 }
 
 /// The share of the cores under which the 1-minute load counts as idle (25%).
@@ -61,10 +114,15 @@ fn load_from(test_file: Option<&OsStr>) -> Option<f64> {
     if let Some(f) = test_file {
         return std::fs::read_to_string(f).ok()?.trim().parse::<f64>().ok().filter(|l| l.is_finite() && *l >= 0.0);
     }
-    let mut l = [0f64; 3];
-    // SAFETY: getloadavg writes at most 1 number into `l`
-    let n = unsafe { getloadavg(l.as_mut_ptr(), 1) };
-    (n >= 1).then_some(l[0])
+    #[cfg(windows)]
+    return prio::load(cores());
+    #[cfg(unix)]
+    {
+        let mut l = [0f64; 3];
+        // SAFETY: getloadavg writes at most 1 number into `l`
+        let n = unsafe { getloadavg(l.as_mut_ptr(), 1) };
+        (n >= 1).then_some(l[0])
+    }
 }
 
 /// The number of cores.
@@ -94,11 +152,17 @@ pub fn background() -> Result<(), String> {
         0 => Ok(()),
         e => Err(std::io::Error::from_raw_os_error(e)),
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     // SAFETY: changes only the calling thread's nice value (Linux)
     let r = match unsafe { prio::setpriority(prio::PRIO_PROCESS, 0, prio::BACKGROUND) } {
         0 => Ok(()),
         _ => Err(std::io::Error::last_os_error()),
+    };
+    #[cfg(windows)]
+    // SAFETY: changes only the calling thread's priority
+    let r = match unsafe { prio::SetThreadPriority(prio::GetCurrentThread(), prio::BACKGROUND) } {
+        0 => Err(std::io::Error::last_os_error()),
+        _ => Ok(()),
     };
     r.map_err(|e| format!("cannot lower its priority: {e}"))
 }
@@ -127,7 +191,14 @@ fn read_priority() -> (bool, String) {
     (class == prio::BACKGROUND, format!("QoS class {class}"))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn read_priority() -> (bool, String) {
+    // SAFETY: reads the calling thread's priority
+    let n = unsafe { prio::GetThreadPriority(prio::GetCurrentThread()) };
+    (n == prio::BACKGROUND, format!("thread priority {n}"))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 fn read_priority() -> (bool, String) {
     // SAFETY: reads the calling thread's nice value
     let n = unsafe { prio::getpriority(prio::PRIO_PROCESS, 0) };

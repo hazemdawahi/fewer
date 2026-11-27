@@ -15,12 +15,27 @@ use std::process::{Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fewer");
 
+/// What a program needs on Windows even in an environment built from nothing (its system
+/// folder, for the network too, and the temporary folder); nothing on Mac and Linux.
+fn windows_keep() -> Vec<(&'static str, std::ffi::OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| std::env::var_os(k).map(|v| (*k, v))).collect()
+}
+
+/// The PATH of the system's own folders: /usr/bin:/bin (Windows: the PATH as given, which holds
+/// its system folders, and Git's).
+fn sys_path() -> std::ffi::OsString {
+    if cfg!(windows) { std::env::var_os("PATH").unwrap_or_default() } else { "/usr/bin:/bin".into() }
+}
+
 /// $FEWER_PACK_BIN, else the repository's own build of fewer-pack (in $CARGO_TARGET_DIR when it
 /// is set, else ../target).
 fn pack_bin() -> PathBuf {
     match std::env::var_os("FEWER_PACK_BIN").filter(|v| !v.is_empty()) {
         Some(b) => PathBuf::from(b),
-        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join("fewer-pack"),
+        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join(format!("fewer-pack{}", std::env::consts::EXE_SUFFIX)),
     }
 }
 
@@ -51,7 +66,8 @@ impl Store {
     }
 
     fn file(&self, rel: &str, data: &[u8]) -> PathBuf {
-        let p = self.base.join("files").join(rel);
+        // (rel's parts joined the system's way: Windows' names use \)
+        let p = rel.split('/').fold(self.base.join("files"), |p, c| p.join(c));
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(&p, data).unwrap();
         p
@@ -60,11 +76,11 @@ impl Store {
     /// `add ARGS`, with PATH the system's folders, or a folder with no program in it: (exit
     /// status, stdout, stderr).
     fn add(&self, args: &[&Path], programs: bool) -> (i32, String, String) {
-        let path = if programs { PathBuf::from("/usr/bin:/bin") } else { self.base.join("no-programs") };
+        let path = if programs { PathBuf::from(sys_path()) } else { self.base.join("no-programs") };
         let out = Command::new(BIN)
             .arg("add")
             .args(args)
-            .env_clear().env("FEWER_DEV", "1")
+            .env_clear().envs(windows_keep()).env("FEWER_DEV", "1")
             .env("PATH", path)
             .env("HOME", self.base.join("fakehome"))
             .env("FEWER_HOME", &self.home)
@@ -212,8 +228,8 @@ fn hide_secrets_on_request() {
     let out = Command::new(BIN)
         .args(["add", "--hide-secrets"])
         .arg(&hidden)
-        .env_clear().env("FEWER_DEV", "1")
-        .env("PATH", "/usr/bin:/bin")
+        .env_clear().envs(windows_keep()).env("FEWER_DEV", "1")
+        .env("PATH", sys_path())
         .env("HOME", s.base.join("fakehome"))
         .env("FEWER_HOME", &s.home)
         .env("FEWER_PACK_BIN", &s.fewer)

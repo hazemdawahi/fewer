@@ -1,20 +1,31 @@
 #!/usr/bin/env python3
 """bench.py: Fewer's benchmark, to rerun on your own computer.
 
-The same 9 tasks, in a made-up project, run by your own Claude Code twice: as it is, and with
-Fewer. Each run counts the tokens Claude Code used (input and cache, every model, Fewer's own
-helpers too) and checks the answer. Both setups load the same things of yours (your login, your
-CLAUDE.md, your add-ons and skills); the only difference is Fewer.
+The same 9 tasks, in a made-up project, run by Claude Code twice: as it is, and with Fewer. Each
+run counts the tokens Claude Code used (input and cache, every model, Fewer's own helpers too)
+and checks the answer. The only difference between the two setups is Fewer.
 
-  python3 bench/bench.py run WORK [--tasks T1,T3] [--runs 3] [--setups claude,fewer]
+  python3 bench/bench.py run WORK [--tasks T1,T3] [--runs 3] [--setups claude,fewer] [--model M]
   python3 bench/bench.py report WORK
+
+The same setup for everyone: the model is fixed (Claude Opus 5.5 unless --model), and none of
+your own Claude Code is loaded (no CLAUDE.md, settings, add-ons, skills or claude.ai
+connectors): Claude Code runs from an empty folder of its own inside WORK, logged in with
+CLAUDE_CODE_OAUTH_TOKEN (make one with `claude setup-token`) or ANTHROPIC_API_KEY. Without
+either, your own login is used and your own CLAUDE.md and skills are loaded too (both setups
+alike); the report then says so, as your numbers may differ more. The report also names the
+Claude Code version, as a different version changes Claude Code's own token use.
 
 WORK is a new folder for the made-up project, the runs and the results; `run` again goes on
 where it stopped. Fewer must be installed (`fewer` on PATH), or name it with FEWER_BIN. Each run
 uses your Claude usage: the whole benchmark is 54 runs (9 tasks, 3 runs each, 2 setups). It
 stops by itself when your plan's usage limit is reached; `run` again later goes on.
 """
-import json, os, random, re, shutil, statistics, subprocess, sys, time
+import json, os, platform, random, re, shutil, statistics, subprocess, sys, time
+
+# the model and the Claude Code version of the numbers on the main page
+MODEL = "claude-opus-5-5"
+MEASURED_WITH = "2.1.332"
 
 TASKS = {
     "T1": "Run the test suite with `python3 -m unittest discover -s tests -v`. Which tests fail, and what exactly does each failure say?",
@@ -51,7 +62,8 @@ def die(msg):
 def write(root, rel, text):
     p = os.path.join(root, rel)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w") as f:
+    # (newline: the same bytes on Windows too)
+    with open(p, "w", newline="\n") as f:
         f.write(text)
 
 
@@ -211,17 +223,18 @@ class TestParse(unittest.TestCase):
         rows.append("%s,%s,%d,%d" % (r, p, u, a))
     write(root, "data/sales.csv", "\n".join(rows) + "\n")
     facts["T5"] = [["%d.%02d" % (tot[r] // 100, tot[r] % 100)] for r in regions] + [[max(units, key=units.get)]]
-    git = lambda *a: subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.invalid", *a], cwd=root, check=True, capture_output=True)
+    # (core.autocrlf off: Git for Windows would change the files' line ends)
+    git = lambda *a: subprocess.run(["git", "-c", "user.name=bench", "-c", "user.email=bench@example.invalid", "-c", "core.autocrlf=false", *a], cwd=root, check=True, capture_output=True)
     git("init", "-q")
     git("add", "-A")
     git("commit", "-q", "-m", "base")
     for rel, old, new in (("calc/upload.py", "return min(2 ** attempt, 30)", "return min(2 ** attempt, 60)"),
                           ("calc/pricing.py", "    return round(price * TAX_RATE, 2)", "    rate = TAX_RATE if price < 1000 else 0.05\n    return round(price * rate, 2)")):
         p = os.path.join(root, rel)
-        text = open(p).read()
+        text = open(p, newline="").read()
         if old not in text:
             die("the made-up project came out wrong (%s)" % rel)
-        with open(p, "w") as f:
+        with open(p, "w", newline="\n") as f:
             f.write(text.replace(old, new))
     git("commit", "-q", "-am", "retry longer; lower tax on big orders")
     facts["T7"] = [["backoff"], ["60"], ["tax"], ["1000", "1,000"]]
@@ -257,15 +270,36 @@ def tokens(res):
     return n + sum(h.get("tokens", 0) for h in res.get("_helpers") or [])
 
 
+LOGINS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY")
+
+
 def clean_env():
     """Your environment without Fewer's settings and without the marks of a Claude Code session
-    this may run inside (CLAUDE_CONFIG_DIR, where your login is, stays)."""
-    return {k: v for k, v in os.environ.items() if not (k.startswith(("FEWER_", "CLAUDE_CODE_")) or k == "CLAUDECODE")}
+    this may run inside (CLAUDE_CONFIG_DIR, where your login is, stays; so do a login token and
+    where Git Bash is on Windows)."""
+    keep = LOGINS + ("CLAUDE_CODE_GIT_BASH_PATH",)
+    return {k: v for k, v in os.environ.items() if k in keep or not (k.startswith(("FEWER_", "CLAUDE_CODE_")) or k == "CLAUDECODE")}
+
+
+def clean_claude(work):
+    """The environment that keeps all of your own Claude Code out of the runs: an empty
+    folder of its own for Claude Code (no CLAUDE.md, settings, add-ons or skills of yours) and no
+    claude.ai connectors. Only with a login token: Claude Code's own folder holds your login."""
+    if not any(os.environ.get(k) for k in LOGINS):
+        return {}
+    d = os.path.join(work, "claude-config")
+    os.makedirs(d, exist_ok=True)
+    return {"CLAUDE_CONFIG_DIR": d}
 
 
 def stub(folder):
     """A stand-in for `claude` during Fewer's install into a run's folder, so that the install
     does not register anything in your real Claude Code (the run itself uses the real one)."""
+    if os.name == "nt":
+        p = os.path.join(folder, "claude.cmd")
+        with open(p, "w", newline="\r\n") as f:
+            f.write("@rem bench.py: `claude mcp ...` during Fewer's install into a run's folder\n@exit /b 0\n")
+        return p
     p = os.path.join(folder, "claude")
     with open(p, "w") as f:
         f.write("#!/bin/sh\n# bench.py: `claude mcp ...` during Fewer's install into a run's folder\nexit 0\n")
@@ -285,6 +319,9 @@ def prepare_fewer(dest, store, fewer, claude, web):
     env = clean_env()
     env.update({"HOME": home, "FEWER_HOME": store, "FEWER_CLAUDE_DIR": claude_dir, "FEWER_CLAUDE_BIN": stub(store),
                 "PATH": os.path.dirname(fewer) + os.pathsep + env.get("PATH", "")})
+    if os.name == "nt":
+        # (Fewer finds the home folder there first)
+        env["USERPROFILE"] = home
     r = subprocess.run([fewer, "install", "claude", "--yes"], cwd=dest, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
     if r.returncode != 0 or not os.path.exists(os.path.join(claude_dir, "agents", "fewer-lean.md")):
         die("Fewer's install into %s failed (exit %d): %s %s" % (dest, r.returncode, r.stdout[-600:], r.stderr[-600:]))
@@ -301,8 +338,29 @@ def prepare_fewer(dest, store, fewer, claude, web):
     return ["--settings", perms], run_env
 
 
+def claude_version(claude):
+    """Claude Code's version, as `claude --version` says it ("2.1.332")."""
+    r = subprocess.run([claude, "--version"], capture_output=True, text=True, timeout=60)
+    return (r.stdout.split() or ["unknown"])[0]
+
+
+def setup_of(work, claude, model):
+    """How the runs in WORK are made (saved with the first run; later runs must match):
+    Claude Code's version, the model, whether your own Claude Code is left out, the system."""
+    now = {"claude_code": claude_version(claude), "model": model, "clean": bool(clean_claude(work)), "system": platform.system()}
+    p = os.path.join(work, "setup.json")
+    if os.path.exists(p):
+        was = json.load(open(p))
+        if (was.get("model"), was.get("clean")) != (now["model"], now["clean"]) or was.get("claude_code") != now["claude_code"]:
+            die("the runs in %s were made another way (%s); these would not compare: use a new folder" % (work, json.dumps(was)))
+    else:
+        with open(p, "w") as f:
+            json.dump(now, f, indent=1)
+    return now
+
+
 def run(work, argv):
-    tasks, runs, setups = list(TASKS), 3, list(SETUPS)
+    tasks, runs, setups, model = list(TASKS), 3, list(SETUPS), MODEL
     it = iter(argv)
     for a in it:
         if a == "--tasks":
@@ -311,6 +369,8 @@ def run(work, argv):
             runs = int(next(it, "3"))
         elif a == "--setups":
             setups = next(it, "").split(",")
+        elif a == "--model":
+            model = next(it, MODEL)
         else:
             die("unknown argument %s" % a)
     if bad := [t for t in tasks if t not in TASKS] + [s for s in setups if s not in SETUPS]:
@@ -326,6 +386,8 @@ def run(work, argv):
             json.dump(facts, f, indent=1)
         print("made the project in %s" % project, flush=True)
     facts = json.load(open(os.path.join(work, "facts.json")))
+    how = setup_of(work, claude, model)
+    print("Claude Code %s, %s, %s" % (how["claude_code"], how["model"], "none of your own Claude Code loaded" if how["clean"] else "your own login and Claude Code setup (no login token given)"), flush=True)
     for rep in range(1, runs + 1):
         for ti, t in enumerate(tasks):
             # (the setups take turns going first: neither always runs first or last)
@@ -341,7 +403,11 @@ def run(work, argv):
                         shutil.rmtree(p)
                 shutil.copytree(project, dest, symlinks=True)
                 env = clean_env()
-                args = [claude, "-p", TASKS[t], "--output-format", "json", "--max-turns", TURNS.get(t, "30"), "--setting-sources", "project,local"]
+                # (the same for everyone: the model fixed; no settings, add-ons or claude.ai
+                # connectors of yours; with a login token none of your Claude Code at all)
+                env.update(clean_claude(work))
+                env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
+                args = [claude, "-p", TASKS[t], "--output-format", "json", "--max-turns", TURNS.get(t, "30"), "--setting-sources", "project,local", "--strict-mcp-config", "--model", model]
                 if s == "fewer":
                     more, run_env = prepare_fewer(dest, store, fewer, claude, t in WEB)
                     args += more
@@ -404,6 +470,12 @@ def report(work):
     if totals[0]:
         print("| **All tasks** | **%s** | **%s** | **%d%%** |" % ("{:,}".format(int(totals[0])), "{:,}".format(int(totals[1])), round(100 * (1 - totals[1] / totals[0]))))
         print("\nMedians of each task's runs. Right answers: %d of %d with Claude Code alone, %d of %d with Fewer." % (right[0], count[0], right[1], count[1]))
+    sp = os.path.join(work, "setup.json")
+    if os.path.exists(sp):
+        how = json.load(open(sp))
+        print("Claude Code %s, %s, on %s; %s." % (how.get("claude_code"), how.get("model"), how.get("system"), "none of your own Claude Code loaded" if how.get("clean") else "your own login and Claude Code setup were loaded (both setups alike), so your numbers may differ more: a login token (claude setup-token) leaves them out"))
+        if how.get("claude_code") != MEASURED_WITH or how.get("model") != MODEL:
+            print("The main page's numbers are for Claude Code %s and %s: another version or model changes Claude Code's own token use." % (MEASURED_WITH, MODEL))
     return 0
 
 

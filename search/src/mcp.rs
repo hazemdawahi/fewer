@@ -20,14 +20,13 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead, BufWriter, Write};
-use std::os::fd::FromRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::json::{self, Json};
-use crate::{sys, tools};
+use crate::tools;
 
 /// The protocol versions we know, oldest first; the newest is answered to any other.
 const VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
@@ -70,21 +69,60 @@ pub fn debug(msg: &str) {
     }
 }
 
-pub fn serve() -> i32 {
-    // the stdout guard: messages go to a copy of stdout; stdout itself becomes stderr
-    let out_fd = match sys::dup_cloexec(1) {
+/// The stdout guard: messages go to a copy of stdout; stdout itself becomes stderr (so a
+/// stray print, ours or a program's, never breaks the messages). The copy, or the exit
+/// status after saying why not.
+#[cfg(unix)]
+fn guard_stdout() -> Result<File, i32> {
+    use std::os::fd::FromRawFd;
+    let out_fd = match crate::sys::dup_cloexec(1) {
         Ok(fd) => fd,
         Err(e) => {
             eprintln!("fewer mcp: cannot keep stdout: {e}");
-            return 1;
+            return Err(1);
         }
     };
-    if let Err(e) = sys::dup_to(2, 1) {
+    if let Err(e) = crate::sys::dup_to(2, 1) {
         eprintln!("fewer mcp: cannot guard stdout: {e}");
-        return 1;
+        return Err(1);
     }
     // SAFETY: out_fd is a new descriptor that only this File owns
-    let out = Mutex::new(BufWriter::with_capacity(1 << 16, unsafe { File::from_raw_fd(out_fd) }));
+    Ok(unsafe { File::from_raw_fd(out_fd) })
+}
+
+/// The stdout guard on Windows: the standard output handle is kept for the messages, and
+/// the standard error handle takes its place (for our prints and the programs we start).
+#[cfg(windows)]
+fn guard_stdout() -> Result<File, i32> {
+    use std::os::windows::io::{FromRawHandle, RawHandle};
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> RawHandle;
+        fn SetStdHandle(which: u32, h: RawHandle) -> i32;
+    }
+    const STD_OUTPUT: u32 = -11i32 as u32;
+    const STD_ERROR: u32 = -12i32 as u32;
+    // SAFETY: reads and sets this process's standard handles; the File takes the output
+    // handle, which nothing else uses from here on
+    unsafe {
+        let out = GetStdHandle(STD_OUTPUT);
+        if out.is_null() || out as isize == -1 {
+            eprintln!("fewer mcp: cannot keep stdout: {}", io::Error::last_os_error());
+            return Err(1);
+        }
+        if SetStdHandle(STD_OUTPUT, GetStdHandle(STD_ERROR)) == 0 {
+            eprintln!("fewer mcp: cannot guard stdout: {}", io::Error::last_os_error());
+            return Err(1);
+        }
+        Ok(File::from_raw_handle(out))
+    }
+}
+
+pub fn serve() -> i32 {
+    let out = match guard_stdout() {
+        Ok(f) => Mutex::new(BufWriter::with_capacity(1 << 16, f)),
+        Err(code) => return code,
+    };
     let ctx = tools::Ctx::new();
     let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
     let home = match &ctx.home {

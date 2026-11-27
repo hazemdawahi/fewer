@@ -20,7 +20,7 @@
 
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use crate::portable::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -99,8 +99,9 @@ impl Writer {
     /// writer. `t0` is the run's start, from which arrival marks count.
     pub fn create(dir: &Path, id: u64, t0: Instant) -> io::Result<Writer> {
         fs::create_dir_all(dir)?;
-        let out = OpenOptions::new().append(true).create_new(true).mode(0o600).open(dir.join(out_file(id)))?;
-        out.lock()?;
+        // (Windows: read access too, which its lock wants)
+        let out = OpenOptions::new().read(cfg!(windows)).append(true).create_new(true).mode(0o600).open(dir.join(out_file(id)))?;
+        crate::portable::lock(&out)?;
         Ok(Writer {
             dir: dir.to_path_buf(),
             id,
@@ -253,9 +254,9 @@ fn max_bytes() -> u64 {
 /// capture that cannot be checked counts as being written (it is never packed half way).
 pub fn writer_alive(path: &Path) -> bool {
     let Ok(f) = File::open(path) else { return false };
-    match f.try_lock_shared() {
+    match crate::portable::try_lock_shared(&f) {
         Ok(()) => {
-            let _ = f.unlock();
+            let _ = crate::portable::unlock(&f);
             false
         }
         Err(TryLockError::WouldBlock) => true,

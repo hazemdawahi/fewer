@@ -26,8 +26,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::process::CommandExt;
+use crate::portable::OpenOptionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -71,8 +70,7 @@ pub fn spawn_detached() -> io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut c = Command::new(exe);
     c.arg("pack-pending").arg("--wait").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    // SAFETY: new_session makes one async-signal-safe call (setsid)
-    unsafe { c.pre_exec(sys_run::new_session) };
+    sys_run::detach(&mut c);
     c.spawn().map(|_| ())
 }
 

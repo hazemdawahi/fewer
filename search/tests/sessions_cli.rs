@@ -9,11 +9,27 @@
 //! packs fails and says how to build it.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_fewer");
+
+/// What a program needs on Windows even in an environment built from nothing (its system
+/// folder, for the network too, and the temporary folder); nothing on Mac and Linux.
+fn windows_keep() -> Vec<(&'static str, std::ffi::OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ["SystemRoot", "TEMP", "TMP"].iter().filter_map(|k| std::env::var_os(k).map(|v| (*k, v))).collect()
+}
+
+/// The PATH of the system's own folders: /usr/bin:/bin (Windows: the PATH as given, which holds
+/// its system folders, and Git's).
+fn sys_path() -> std::ffi::OsString {
+    if cfg!(windows) { std::env::var_os("PATH").unwrap_or_default() } else { "/usr/bin:/bin".into() }
+}
 const SID: &str = "11111111-2222-4333-8444-555555555555";
 
 /// The fewer-pack program that packs (never run when nothing is saved).
@@ -26,7 +42,7 @@ fn fewer() -> PathBuf {
 fn pack_bin() -> PathBuf {
     match std::env::var_os("FEWER_PACK_BIN").filter(|v| !v.is_empty()) {
         Some(b) => PathBuf::from(b),
-        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join("fewer-pack"),
+        None => std::env::var_os("CARGO_TARGET_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target")).join("release").join(format!("fewer-pack{}", std::env::consts::EXE_SUFFIX)),
     }
 }
 
@@ -64,8 +80,8 @@ impl Case {
         let b = &self.base;
         let mut c = Command::new(BIN);
         c.args(["sessions", "sync"])
-            .env_clear().env("FEWER_DEV", "1")
-            .env("PATH", "/usr/bin:/bin")
+            .env_clear().envs(windows_keep()).env("FEWER_DEV", "1")
+            .env("PATH", sys_path())
             .env("HOME", b.join("fakehome"))
             .env("FEWER_HOME", b.join("home"))
             .env("FEWER_PACK_BIN", fewer())
@@ -97,7 +113,12 @@ impl Case {
 }
 
 fn line(cwd: &Path, n: u32, body: &str) -> String {
-    format!("{{\"cwd\":\"{}\",\"sessionId\":\"{SID}\",\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":{body}}},\"timestamp\":\"2026-11-18T10:00:{n:02}.000Z\"}}\n", cwd.display())
+    format!("{{\"cwd\":\"{}\",\"sessionId\":\"{SID}\",\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":{body}}},\"timestamp\":\"2026-11-18T10:00:{n:02}.000Z\"}}\n", js(cwd))
+}
+
+/// A path as a JSON string holds it (Windows' `\` written `\\`, as Claude Code writes them).
+fn js(p: &Path) -> String {
+    p.display().to_string().replace('\\', "\\\\")
 }
 
 fn text(o: &Output) -> String {
@@ -112,7 +133,7 @@ fn saves_once_then_the_tail_with_secrets_hidden() {
     let cwd = c.base.join("proj/app");
     // a made-up key, put together here (no secret-like text in the source)
     let key = format!("AKIA{}", "Q7".repeat(8));
-    let first = line(&cwd, 1, &format!("[{{\"type\":\"tool_use\",\"name\":\"Edit\",\"input\":{{\"file_path\":\"{}/src/a.rs\"}}}}]", cwd.display()))
+    let first = line(&cwd, 1, &format!("[{{\"type\":\"tool_use\",\"name\":\"Edit\",\"input\":{{\"file_path\":\"{}/src/a.rs\"}}}}]", js(&cwd)))
         + &line(&cwd, 2, &format!("[{{\"type\":\"text\",\"text\":\"key {key}\"}}]"));
     fs::write(c.session(), &first).unwrap();
     let o = c.sync();
@@ -128,7 +149,7 @@ fn saves_once_then_the_tail_with_secrets_hidden() {
     assert_eq!(saved, first.replace(&key, "[hidden: AWS key]"));
     // the run's catalog: the session's keys, and the edited file (its path is stored as it is)
     let cat = dir.join("r000001.cat");
-    let keys = Command::new(BIN).args(["keys", "--cat"]).arg(&cat).env_clear().env("FEWER_DEV", "1").env("PATH", "/usr/bin:/bin").env("HOME", c.base.join("fakehome")).output().unwrap();
+    let keys = Command::new(BIN).args(["keys", "--cat"]).arg(&cat).env_clear().envs(windows_keep()).env("FEWER_DEV", "1").env("PATH", sys_path()).env("HOME", c.base.join("fakehome")).output().unwrap();
     let keys = String::from_utf8(keys.stdout).unwrap();
     assert!(keys.contains("1\t{session assistant assistant tool_use Edit}\n") && keys.contains("1\t{session assistant assistant text}\n"), "{keys}");
     let edited = format!("{}/src/a.rs", cwd.display());
@@ -149,6 +170,8 @@ fn saves_once_then_the_tail_with_secrets_hidden() {
     c.done();
 }
 
+// (Mac and Linux: a folder no one may list is made with its mode, which Windows has not)
+#[cfg(unix)]
 #[test]
 fn nothing_is_read_while_sessions_are_off() {
     let c = Case::new("off");
@@ -170,6 +193,7 @@ fn nothing_is_read_while_sessions_are_off() {
     c.done();
 }
 
+#[cfg(unix)]
 #[test]
 fn nothing_is_read_without_the_folders_settings() {
     // in development: sessions on, and HOME holding Claude Code's and Codex's folders with a session

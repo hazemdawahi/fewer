@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use crate::portable::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -290,7 +290,7 @@ impl Drop for Lock {
 /// The store's own folder made when it is not there, readable by its owner alone (it holds
 /// command lines, folders, branches and log keys); one that is there is left as it is.
 pub fn make_home(home: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
+    use crate::portable::DirBuilderExt;
     if home.is_dir() {
         return Ok(());
     }
@@ -385,7 +385,7 @@ const KEEP_DAYS: u64 = 7;
 /// older than KEEP_DAYS are removed.
 pub(crate) fn keep_whole(text: &str, name: &str, what: &str) -> Option<PathBuf> {
     use std::io::Write as _;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use crate::portable::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     static SEQ: AtomicUsize = AtomicUsize::new(0);
     static SWEPT: AtomicBool = AtomicBool::new(false);

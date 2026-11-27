@@ -18,7 +18,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use crate::portable::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::json::{self, Json};
@@ -38,8 +38,14 @@ pub const BELOW: u64 = 33_000;
 /// Our two hooks: (event, matcher, the argument after `hook`).
 const HOOKS: [(&str, Option<&str>, &str); 3] = [("PostToolUse", Some("Bash"), "post-bash"), ("SessionStart", None, "start"), ("PreCompact", None, "precompact")];
 
-/// A word as a shell reads it back: quoted when it needs it.
+/// A word as a shell reads it back: quoted when it needs it. On Windows a Windows path (a
+/// drive or a `\` in it) is written with `/` in double quotes, which Claude Code's two shells
+/// for hooks there, cmd and Git Bash, read alike (Windows names never hold a `"`).
 fn quoted(w: &str) -> String {
+    #[cfg(windows)]
+    if w.contains(':') || w.contains('\\') {
+        return format!("\"{}\"", w.replace('\\', "/"));
+    }
     let safe = !w.is_empty() && w.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._-+@%:,=".contains(&c));
     if safe { w.to_string() } else { format!("'{}'", w.replace('\'', "'\\''")) }
 }
@@ -59,7 +65,7 @@ pub fn command(home: Option<&str>, me: &str, which: &str) -> String {
 fn ours(cmd: &str, which: &str) -> bool {
     let Some(rest) = cmd.strip_suffix(&format!(" hook {which}")) else { return false };
     match &crate::hook::pipelines(rest)[..] {
-        [pipe] if pipe.len() == 1 => crate::hook::program(&pipe[0]).is_some_and(|(name, args)| name == "fewer" && args.is_empty()),
+        [pipe] if pipe.len() == 1 => crate::hook::program(&pipe[0]).is_some_and(|(name, args)| matches!(name, "fewer" | "fewer.exe") && args.is_empty()),
         _ => false,
     }
 }
@@ -366,7 +372,7 @@ mod tests {
         fs::create_dir_all(d.join("claude")).unwrap();
         fs::write(d.join("dotfiles").join("settings.json"), "{}").unwrap();
         let link = d.join("claude").join("settings.json");
-        std::os::unix::fs::symlink(d.join("dotfiles").join("settings.json"), &link).unwrap();
+        crate::portable::symlink(d.join("dotfiles").join("settings.json"), &link).unwrap();
         let copy = write(&link, Some(b"{}"), &json::parse(br#"{"a":1}"#).unwrap()).unwrap().unwrap();
         assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
         assert_eq!(fs::read_to_string(d.join("dotfiles").join("settings.json")).unwrap(), "{\n  \"a\": 1\n}\n");
@@ -460,6 +466,7 @@ mod tests {
         assert!(text.starts_with("{\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Bash\",\n"), "{text}");
         assert!(text.ends_with("  \"autoCompactWindow\": 120000\n}\n"), "{text}");
         assert_eq!(json::parse(text.as_bytes()).unwrap(), j);
+        #[cfg(unix)]
         assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         // a file there: the old one kept next to it, its mode kept
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
@@ -469,6 +476,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&copy).unwrap(), text);
         assert!(copy.file_name().unwrap().to_str().unwrap().starts_with("settings.json.before-fewer-"));
         assert_eq!(fs::read_to_string(&file).unwrap(), "{}\n");
+        #[cfg(unix)]
         assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o644);
         // changed since it was read: nothing written
         let (was, j) = read(&file).unwrap();
@@ -847,7 +855,7 @@ pub fn me() -> String {
 /// program, else its whole path, quoted when it needs it.
 pub fn command_word(me: &str, path: Option<&std::ffi::OsStr>) -> String {
     let same = |p: &Path| fs::canonicalize(p).ok().zip(fs::canonicalize(me).ok()).is_some_and(|(a, b)| a == b);
-    let on_path = path.into_iter().flat_map(std::env::split_paths).filter(|d| d.is_absolute()).map(|d| d.join("fewer")).find(|p| p.is_file());
+    let on_path = path.into_iter().flat_map(std::env::split_paths).filter(|d| d.is_absolute()).map(|d| d.join(format!("fewer{}", std::env::consts::EXE_SUFFIX))).find(|p| p.is_file());
     if on_path.is_some_and(|p| same(&p)) { "fewer".to_string() } else { quoted(me) }
 }
 
@@ -1326,11 +1334,13 @@ mod lean_tests {
         // how the rules name fewer: its name when PATH finds this one, else its path
         let bin = d.join("bin");
         fs::create_dir_all(&bin).unwrap();
-        let me = bin.join("fewer");
+        let me = bin.join(format!("fewer{}", std::env::consts::EXE_SUFFIX));
         fs::write(&me, "#!/bin/sh\n").unwrap();
         let me = me.to_str().unwrap();
         assert_eq!(command_word(me, Some(bin.as_os_str())), "fewer");
-        assert_eq!(command_word(me, Some(std::ffi::OsStr::new("/nowhere"))), me);
+        // (Windows: its path with / in double quotes)
+        let me_path = if cfg!(windows) { format!("\"{}\"", me.replace('\\', "/")) } else { me.to_string() };
+        assert_eq!(command_word(me, Some(std::ffi::OsStr::new("/nowhere"))), me_path);
         assert_eq!(command_word("/opt/my tools/fewer", None), "'/opt/my tools/fewer'");
         // the settings: the developer's own values stay; ours come back out
         let theirs = r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true"},"autoCompactWindow":120000}"#;

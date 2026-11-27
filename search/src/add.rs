@@ -65,8 +65,8 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use crate::portable::OsStrExt;
+use crate::portable::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
@@ -1305,13 +1305,11 @@ fn not_text(head: &[u8]) -> Option<String> {
 }
 
 /// An installed program, looked for in PATH's absolute folders (one in the current folder is
-/// never run): a file with an execute bit.
+/// never run): a file with an execute bit (on Windows: NAME.exe or NAME.cmd).
 fn find_program(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .filter(|d| d.is_absolute())
-        .map(|d| d.join(name))
-        .find(|p| fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+    let names = crate::install::program_names(OsStr::new(name));
+    std::env::split_paths(&path).filter(|d| d.is_absolute()).flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| crate::install::is_program(p))
 }
 
 /// Why a program that reads gave no output to save.
@@ -1696,9 +1694,11 @@ mod tests {
         }
     }
 
+    // (Mac and Linux: links to folders, which Windows makes only for administrators)
+    #[cfg(unix)]
     #[test]
     fn walks_folders_without_links() {
-        use std::os::unix::fs::symlink;
+        use crate::portable::symlink;
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("test-tmp").join(format!("{}-walk", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         let store = d.join("store");
@@ -1775,10 +1775,13 @@ mod tests {
         assert_eq!(copy_keep(&d.join("t"), &d.join("k.keep"), Some(t)).unwrap(), hash_file(&d.join("t")).unwrap());
         assert_eq!(fs::read(d.join("k.keep")).unwrap(), text.as_bytes());
         assert_eq!(fs::metadata(d.join("k.keep")).unwrap().modified().unwrap(), t);
+        #[cfg(unix)]
         assert_eq!(fs::metadata(d.join("k.keep")).unwrap().permissions().mode() & 0o777, 0o600);
         fs::remove_dir_all(&d).unwrap();
     }
 
+    // (Mac and Linux: /bin/sh)
+    #[cfg(unix)]
     #[test]
     fn programs_that_read() {
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("test-tmp").join(format!("{}-prog", std::process::id()));

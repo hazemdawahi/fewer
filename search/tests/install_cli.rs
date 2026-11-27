@@ -7,6 +7,9 @@
 //! claude is always the stub (tests/data/claude-stub), copied into the target folder's tmp/
 //! (CARGO_TARGET_TMPDIR); the PATH given to the program is checked to hold no other claude,
 //! and HOME is a folder there too, checked to stay empty.
+//!
+//! (Mac and Linux: the stub is a shell script run as a program, which Windows cannot run.)
+#![cfg(unix)]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;

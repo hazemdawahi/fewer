@@ -17,6 +17,16 @@ fn var(k: &str) -> Option<OsString> {
     std::env::var_os(k).filter(|v| !v.is_empty())
 }
 
+/// The home folder's variable: HOME; on Windows USERPROFILE first, as Claude Code finds its
+/// folder there (Node's os.homedir), then HOME (cmd and PowerShell have no HOME).
+pub fn home_var() -> Option<OsString> {
+    #[cfg(windows)]
+    if let Some(h) = var("USERPROFILE") {
+        return Some(h);
+    }
+    std::env::var_os("HOME")
+}
+
 /// A setting: its variable, else (not in development) its usual value on this machine.
 pub fn setting(k: &str) -> Option<OsString> {
     var(k).or_else(|| if dev() { None } else { usual(k) })
@@ -28,7 +38,7 @@ fn usual(k: &str) -> Option<OsString> {
         // (a name: looked for on PATH, as a shell finds it)
         return Some("claude".into());
     }
-    let home = var("HOME").map(PathBuf::from).filter(|h| h.is_absolute())?;
+    let home = home_var().filter(|v| !v.is_empty()).map(PathBuf::from).filter(|h| h.is_absolute())?;
     let claude = var("CLAUDE_CONFIG_DIR").map(PathBuf::from).filter(|d| d.is_absolute());
     let p = match k {
         "FEWER_HOME" => home.join(".fewer"),

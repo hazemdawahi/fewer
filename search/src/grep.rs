@@ -10,7 +10,7 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, BufReader, Write};
-use std::os::unix::ffi::OsStrExt;
+use crate::portable::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 

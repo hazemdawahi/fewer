@@ -141,7 +141,7 @@ impl Rules {
     /// The rules for a session in `cwd`.
     pub fn load(cwd: &Path) -> Rules {
         let mut r = Rules { bounded: std::env::var_os("CLAUDECODE").is_some_and(|v| !v.is_empty()), ..Rules::default() };
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = crate::defaults::home_var().map(PathBuf::from);
         r.roots.push(crate::store::project_root(cwd));
         // (Claude Code's own folder for a session's files: a background command's output)
         #[cfg(unix)]
@@ -189,8 +189,8 @@ impl Rules {
         }
     }
 
-    /// The same, bounded to these roots with these Read allow rules (tests).
-    #[cfg(test)]
+    /// The same, bounded to these roots with these Read allow rules (tests, Mac and Linux).
+    #[cfg(all(test, unix))]
     fn bounded_to(mut self, roots: &[&Path], allow: &[&str]) -> Rules {
         let f = roots[0].join(".claude").join("settings.json");
         self.allow = allow.iter().filter_map(|t| parse_rule(t, &f, roots[0])).collect();
@@ -259,7 +259,7 @@ fn read_matches(spec: Option<&str>, path: &Path, cwd: &Path, root: &Path) -> boo
     if s.is_empty() || s == "*" || s == "**" {
         return true;
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = crate::defaults::home_var().map(PathBuf::from);
     let (bases, pat, anchored): (Vec<PathBuf>, &str, bool) = if let Some(p) = s.strip_prefix("//") {
         (vec![PathBuf::from("/")], p, true)
     } else if let Some(p) = s.strip_prefix("~/") {
@@ -416,7 +416,7 @@ fn join(words: &[String]) -> String {
 
 /// A path with the home folder shown as ~.
 pub fn tilde(p: &Path) -> String {
-    match std::env::var_os("HOME").map(PathBuf::from) {
+    match crate::defaults::home_var().map(PathBuf::from) {
         Some(h) if p.starts_with(&h) => format!("~/{}", p.strip_prefix(&h).map(|r| r.display().to_string()).unwrap_or_default()),
         _ => p.display().to_string(),
     }
@@ -481,6 +481,8 @@ mod tests {
         assert_eq!(g.read(Path::new("src/test_10.py"), cwd), Verdict::Free);
     }
 
+    // (Mac and Linux: absolute paths written /w/proj)
+    #[cfg(unix)]
     #[test]
     fn reads_keep_the_projects_bounds_in_a_claude_code_session() {
         let root = Path::new("/w/proj");

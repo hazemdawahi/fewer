@@ -113,6 +113,7 @@ impl<R: Read> Segmenter<R> {
 
 // ---------------------------------------------------------------- mapped input files
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn mmap(addr: *mut std::ffi::c_void, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut std::ffi::c_void;
     fn munmap(addr: *mut std::ffi::c_void, len: usize) -> i32;
@@ -131,6 +132,13 @@ unsafe impl Send for Mapped {}
 unsafe impl Sync for Mapped {}
 
 impl Mapped {
+    /// (Windows: not mapped yet; the file is read as a stream instead)
+    #[cfg(windows)]
+    pub fn open(_f: &fs::File, _len: u64) -> Option<Mapped> {
+        None
+    }
+
+    #[cfg(unix)]
     #[cfg_attr(fewer_small, optimize(size))]
     pub fn open(f: &fs::File, len: u64) -> Option<Mapped> {
         use std::os::fd::AsRawFd;
@@ -156,6 +164,7 @@ impl Mapped {
 impl Drop for Mapped {
     fn drop(&mut self) {
         // SAFETY: unmapping exactly what open() mapped
+        #[cfg(unix)]
         unsafe {
             munmap(self.ptr, self.len);
         }
@@ -1280,13 +1289,15 @@ static UMASK: AtomicU32 = AtomicU32::new(0o022);
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
 type ModeT = u16;
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))))]
 type ModeT = u32;
 
 /// A signal set, big enough for every system (macOS uses 4 bytes, Linux 128).
+#[cfg(unix)]
 #[repr(C, align(8))]
 struct SigSet([u8; 128]);
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn signal(sig: i32, handler: usize) -> usize;
     fn unlink(path: *const std::ffi::c_char) -> i32;
@@ -1300,13 +1311,14 @@ unsafe extern "C" {
 
 #[cfg(target_os = "linux")]
 const SIGBUS: i32 = 7;
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(unix, not(target_os = "linux")))]
 const SIGBUS: i32 = 10;
 #[cfg(target_os = "linux")]
 const SIG_BLOCK: i32 = 0;
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(unix, not(target_os = "linux")))]
 const SIG_BLOCK: i32 = 1;
 /// SIGHUP, SIGINT, SIGTERM, SIGXCPU, SIGXFSZ (the same numbers on Linux and macOS)
+#[cfg(unix)]
 const STOP_SIGNALS: [i32; 5] = [1, 2, 15, 24, 25];
 
 #[cfg_attr(fewer_small, optimize(size))]
@@ -1315,13 +1327,39 @@ fn unlink_temp_files() {
         let q = p.load(Ordering::SeqCst);
         if !q.is_null() {
             // SAFETY: q is a C string leaked in register_temp; unlink is async-signal-safe
+            #[cfg(unix)]
             unsafe {
                 unlink(q);
+            }
+            // SAFETY: as above; its bytes are a name's own (as_encoded_bytes, this program)
+            #[cfg(windows)]
+            unsafe {
+                let name = std::ffi::OsStr::from_encoded_bytes_unchecked(std::ffi::CStr::from_ptr(q).to_bytes());
+                let _ = fs::remove_file(name);
             }
         }
     }
 }
 
+/// Write `m` to standard error, then end the program at once with `code` (nothing else runs).
+#[cfg(panic = "abort")]
+#[cfg_attr(fewer_small, optimize(size))]
+fn say_and_exit(m: &[u8], code: i32) -> ! {
+    // SAFETY: write(2) and _exit(2) on our own buffer; nothing runs after _exit
+    #[cfg(unix)]
+    unsafe {
+        write(2, m.as_ptr() as *const std::ffi::c_void, m.len());
+        _exit(code)
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        let _ = std::io::stderr().write_all(m);
+        std::process::exit(code)
+    }
+}
+
+#[cfg(unix)]
 extern "C" fn on_sigbus(_sig: i32) {
     let m = b"fewer-pack: an input file got shorter while it was being read; nothing was written\n";
     // SAFETY: write(2), unlink(2) and _exit(2) are async-signal-safe
@@ -1357,6 +1395,32 @@ pub fn remove_tree(p: &Path) {
 /// and folders) and exits. SIGBUS (a mapped input file got shorter) removes temporary files.
 /// A broken pipe exits quietly (`fewer-pack cat x.cmf | head`). Call this first, before any
 /// thread starts (threads inherit the blocked signals).
+///
+/// On Windows: Ctrl-C, Ctrl-Break and closing the window remove the temporary outputs the
+/// same way (Windows runs the handler on a thread of its own), then the program exits.
+#[cfg(windows)]
+pub fn install_signal_handlers() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(handler: Option<unsafe extern "system" fn(u32) -> i32>, add: i32) -> i32;
+    }
+    unsafe extern "system" fn on_ctrl(_kind: u32) -> i32 {
+        let _g = GATE.lock().unwrap_or_else(|e| e.into_inner());
+        unlink_temp_files();
+        let dirs = TEMP_DIRS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for d in dirs {
+            remove_tree(&d);
+        }
+        // (128 + SIGINT, as on Mac and Linux)
+        std::process::exit(130)
+    }
+    // SAFETY: adds a handler; on_ctrl only removes files and exits
+    unsafe {
+        SetConsoleCtrlHandler(Some(on_ctrl), 1);
+    }
+}
+
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 pub fn install_signal_handlers() {
     // SAFETY: plain libc calls on a set we own; the handler only uses async-signal-safe calls
@@ -1379,6 +1443,7 @@ pub fn install_signal_handlers() {
 }
 
 /// The signal thread: on a stop signal, remove the temporary files and folders, and exit.
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 fn signal_thread(set: SigSet) -> ! {
     loop {
@@ -1473,11 +1538,7 @@ fn panic_exit(code: i32) -> ! {
     } else {
         b"damaged archive (the engine stopped on its data)\n"
     });
-    // SAFETY: write(2) and _exit(2) on our own buffer; nothing runs after _exit
-    unsafe {
-        write(2, m.as_ptr() as *const std::ffi::c_void, m.len());
-        _exit(code)
-    }
+    say_and_exit(&m, code)
 }
 
 /// The process umask.
@@ -1773,9 +1834,13 @@ mod tests {
             assert_eq!(f.finish_synced(0o640, Some((1_700_000_000, 5))).unwrap(), durable);
             assert_eq!(fs::read(&dest).unwrap(), b"some bytes\n");
             let md = fs::metadata(&dest).unwrap();
-            use crate::portable::{MetadataExt, PermissionsExt};
+            use crate::portable::MetadataExt;
+            #[cfg(unix)]
+            use crate::portable::PermissionsExt;
+            #[cfg(unix)]
             assert_eq!(md.permissions().mode() & 0o777, 0o640);
-            assert_eq!((md.mtime(), md.mtime_nsec()), (1_700_000_000, 5));
+            // (Windows keeps a file's times in 100 ns steps)
+            assert_eq!((md.mtime(), md.mtime_nsec()), (1_700_000_000, if cfg!(windows) { 0 } else { 5 }));
             fs::remove_file(&dest).unwrap();
         }
         let _ = fs::remove_dir(&dir);

@@ -6,7 +6,7 @@
 
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::process::CommandExt;
+use crate::portable::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;

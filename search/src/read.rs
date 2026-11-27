@@ -1398,7 +1398,12 @@ mod tests {
         // (the line that says so counted in the limit)
         assert!(stopped && part.len() <= 3_000, "{}", part.len());
         let tail = part.lines().last().unwrap();
-        assert!(tail.starts_with("… stopped at line ") && tail.contains(" read --from ") && tail.ends_with(&format!(" '{}' {}", b.display(), s.display())), "{tail}");
+        #[cfg(unix)]
+        let want = format!(" '{}' {}", b.display(), s.display());
+        // (Windows: a path's `\` quoted too, for Git Bash, where Claude Code runs commands)
+        #[cfg(windows)]
+        let want = format!(" '{}' '{}'", b.display(), s.display());
+        assert!(tail.starts_with("… stopped at line ") && tail.contains(" read --from ") && tail.ends_with(&want), "{tail}");
         let line: usize = tail["… stopped at line ".len()..].split(' ').next().unwrap().parse().unwrap();
         let on: Vec<OsString> = [&b, &s].iter().map(|p| p.as_os_str().to_os_string()).collect();
         let (next, _, _) = read_files(&on, Some(line), 0, 1_000_000, "fewer");
@@ -1406,7 +1411,8 @@ mod tests {
         // a missing file and a folder: said, the others still read
         let gone: Vec<OsString> = vec![d.join("none").into_os_string(), d.clone().into_os_string(), s.clone().into_os_string()];
         let (v, ok, _) = read_files(&gone, None, 0, 1_000_000, "fewer");
-        assert!(!ok && v.contains("none: No such file") && v.contains("a folder: give the files in it") && v.contains("s.env (2 lines"), "{v}");
+        let missing = if cfg!(windows) { "none: The system cannot find the file specified" } else { "none: No such file" };
+        assert!(!ok && v.contains(missing) && v.contains("a folder: give the files in it") && v.contains("s.env (2 lines"), "{v}");
         // many files with long names: the stop line names a few and stays within the limit
         let many: Vec<OsString> = (0..300).map(|k| d.join(format!("{}-{k}.txt", "long-name-".repeat(8))).into_os_string()).collect();
         for f in &many {
@@ -1629,11 +1635,15 @@ mod tests {
         let (v, _, stopped) = read_files(&[big.clone().into_os_string(), dash], None, 0, 5_000, "fewer");
         let tail = v.lines().last().unwrap();
         assert!(stopped && tail.contains(" --max 5000 -- ") && v.len() <= 5_000, "{tail}");
-        // a name with a line end in it: one header line, one stop line
-        let nl = d.join("two\nlines.txt");
-        std::fs::write(&nl, unique(3_000)).unwrap();
-        let (v, _, _) = read_files(&[nl.into_os_string()], None, 0, 5_000, "fewer");
-        assert!(v.lines().next().unwrap().ends_with("two\\nlines.txt (3,000 lines)") && v.lines().last().unwrap().starts_with("… stopped at line "), "{}", &v[..300]);
+        // a name with a line end in it: one header line, one stop line (Mac and Linux: Windows
+        // names hold no line end)
+        #[cfg(unix)]
+        {
+            let nl = d.join("two\nlines.txt");
+            std::fs::write(&nl, unique(3_000)).unwrap();
+            let (v, _, _) = read_files(&[nl.into_os_string()], None, 0, 5_000, "fewer");
+            assert!(v.lines().next().unwrap().ends_with("two\\nlines.txt (3,000 lines)") && v.lines().last().unwrap().starts_with("… stopped at line "), "{}", &v[..300]);
+        }
         // the --skip form, when a name starts with "-": its options before any --
         let many: Vec<OsString> = (0..80).map(|k| OsString::from(format!("-dash-{k:02}-{}.txt", "n".repeat(30)))).chain([big.clone().into_os_string()]).collect();
         let mut first = vec![big.clone().into_os_string()];

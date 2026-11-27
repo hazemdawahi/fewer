@@ -278,6 +278,23 @@ fn main() {
 /// program's folder (std::env::current_exe), else the first on PATH. execv and execvp are
 /// called directly, not through std::process, to stay small. Returns only to end with the
 /// error.
+///
+/// On Windows (no exec there): fewer.exe is run, with this program's input and output, and
+/// its exit code is this program's.
+#[cfg(windows)]
+fn exec_search(args: &[OsString]) -> ! {
+    let near = std::env::current_exe().ok().map(|me| me.with_file_name("fewer.exe")).filter(|p| p.is_file());
+    let prog = near.map(OsString::from).unwrap_or_else(|| OsString::from("fewer"));
+    match std::process::Command::new(prog).args(args).status() {
+        Ok(st) => exit(st.code().unwrap_or(1)),
+        Err(_) => {
+            eprintln!("fewer-pack: add, run and memory need fewer, which was not found next to fewer-pack or on PATH");
+            exit(2)
+        }
+    }
+}
+
+#[cfg(unix)]
 #[cfg_attr(fewer_small, optimize(size))]
 fn exec_search(args: &[OsString]) -> ! {
     use std::ffi::{c_char, CString};

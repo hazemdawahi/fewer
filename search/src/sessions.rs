@@ -59,7 +59,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use crate::portable::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -572,14 +572,15 @@ fn contains(hay: &[u8], needle: &[u8]) -> bool {
 }
 
 /// The working folder a session line names: Claude Code's `cwd`, Codex's `payload.cwd`
-/// (session_meta and turn_context lines); an absolute path only.
+/// (session_meta and turn_context lines); a path from the root only (/w/app; on Windows
+/// C:\Users\... too).
 fn line_cwd(line: &[u8]) -> Option<String> {
     if !contains(line, b"\"cwd\"") {
         return None;
     }
     let o = json_line(line)?;
     let cwd = o.get("cwd").and_then(Json::str).or_else(|| o.get("payload").and_then(|p| p.get("cwd")).and_then(Json::str))?;
-    cwd.starts_with('/').then(|| cwd.to_string())
+    std::path::Path::new(cwd).has_root().then(|| cwd.to_string())
 }
 
 /// The files a Claude Code session line edits: the `file_path` or `notebook_path` of each
@@ -823,12 +824,10 @@ struct Sweep<'a> {
 /// the hooks save Claude Code's chats, as fewer leaves fewer's MCP server (whose sweeper saves
 /// them otherwise) out of Claude Code's start; one sweep runs at a time (raw/sessions.lock).
 pub fn sync_detached() -> std::io::Result<()> {
-    use std::os::unix::process::CommandExt;
     let exe = std::env::current_exe()?;
     let mut c = std::process::Command::new(exe);
     c.args(["sessions", "sync"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    // SAFETY: new_session makes one async-signal-safe call (setsid)
-    unsafe { c.pre_exec(crate::sys_run::new_session) };
+    crate::sys_run::detach(&mut c);
     c.spawn().map(|_| ())
 }
 
@@ -1089,7 +1088,7 @@ impl Sweep<'_> {
         }
         let mut piece = self.piece()?;
         let mut child = match Command::new("sqlite3")
-            .args(["-readonly", "-init", "/dev/null", "-cmd", ".timeout 2000", "-json"])
+            .args(["-readonly", "-init", if cfg!(windows) { "NUL" } else { "/dev/null" }, "-cmd", ".timeout 2000", "-json"])
             .arg(&src.path)
             .arg(CURSOR_QUERY)
             .stdin(Stdio::null())
@@ -1539,6 +1538,7 @@ mod tests {
         assert!(agents_on(&s("sessions = off\nsessions = on\n"), &mut n).is_empty());
     }
 
+    #[cfg(unix)]
     fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |k: &str| pairs.iter().find(|(a, _)| *a == k).map(|(_, v)| OsString::from(v))
     }
@@ -1564,7 +1564,7 @@ mod tests {
         put(&format!("{sid}/.hidden/agent-f6.jsonl")); // a hidden folder
         let mut f = Found::default();
         helpers("claude", &d, &mut f);
-        let mut got: Vec<(String, Option<String>)> = f.sources.iter().map(|s| (s.path.strip_prefix(&d).unwrap().display().to_string(), s.session.clone())).collect();
+        let mut got: Vec<(String, Option<String>)> = f.sources.iter().map(|s| (s.path.strip_prefix(&d).unwrap().display().to_string().replace('\\', "/"), s.session.clone())).collect();
         got.sort();
         let want = |rel: &str| (format!("{sid}/{rel}"), Some(sid.to_string()));
         assert_eq!(got, [want("subagents/agent-a1.jsonl"), want("w/x/y/z/agent-c3.jsonl"), want("workflows/run1/agents/agent-b2.jsonl")]);
@@ -1572,6 +1572,8 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
+    // (Mac and Linux: absolute paths written /t/a)
+    #[cfg(unix)]
     #[test]
     fn places_only_from_their_settings() {
         let ok = |p: &str| Ok(PathBuf::from(p));
