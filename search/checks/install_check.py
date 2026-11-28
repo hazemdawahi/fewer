@@ -700,7 +700,7 @@ def check_update_adds_new_rules(ctx):
     c.done()
 
 
-WINDOW_BACK = "✓ Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: quit VSCode or the terminal fully, then open it again (/clear is not enough)."
+WINDOW_BACK = "✓ Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: in VSCode, run Developer: Reload Window (Cmd/Ctrl+Shift+P); in a terminal, exit claude and start it again (/clear is not enough)."
 
 
 def restarts(out):

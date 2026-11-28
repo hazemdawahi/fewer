@@ -70,7 +70,7 @@ pub const USE_LINE: &str = "\nNext: in Claude Code, open a new chat (or close an
 /// fewer's own old autoCompactWindow line out of Claude Code's settings.json (1.0.0 to 1.2.0
 /// wrote it: savers::take_back_window); never otherwise. A Claude Code that runs may keep the
 /// window it started with, so it is started again once.
-const WINDOW_BACK: &str = "Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: quit VSCode or the terminal fully, then open it again (/clear is not enough).";
+const WINDOW_BACK: &str = "Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: in VSCode, run Developer: Reload Window (Cmd/Ctrl+Shift+P); in a terminal, exit claude and start it again (/clear is not enough).";
 
 /// WINDOW_BACK, as fewer's other done lines are written.
 fn say_window_back(t: &mut Talk) -> io::Result<()> {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- When an update takes Fewer's old `autoCompactWindow` line out, its restart line now says what
+  is enough: Reload Window in VSCode, or starting `claude` again in a terminal; quitting VSCode
+  is not needed.
+
 ## 1.2.1 (2026-11-27)
 
 - Fewer no longer sets `autoCompactWindow`, so long chats compact where normal Claude Code does.
@@ -7,8 +13,9 @@
   67,000 tokens, even on the 1M-token model).
 - An update takes Fewer's old line back out, and so do `fewer on`, `fewer off` and
   `fewer uninstall`; each says so in one line when it does. A value you set yourself is kept.
-- Already on Fewer: run `fewer update`, then restart Claude Code once: quit VSCode or the
-  terminal fully and open it again (`/clear` is not enough).
+- Already on Fewer: run `fewer update`, then restart Claude Code once: in VSCode, run
+  Developer: Reload Window (Cmd/Ctrl+Shift+P); in a terminal, exit `claude` and start it again
+  (`/clear` is not enough).
 
 ## 1.2.0 (2026-11-27)
 
