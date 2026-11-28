@@ -39,8 +39,8 @@ it says otherwise:
   keeping every other line and the file's mode; no changes nothing; not asked when they are
   saved already, or when no agent's folder is set;
 - fewer (savers.rs): shown first, turned on under the one question that registers fewer; it writes Claude Code's settings.json in the made-up
-  FEWER_CLAUDE_DIR (three hooks naming BIN and the store, autoCompactWindow 100000, the smaller
-  start, the lean agent setting and environment) and the three agents' files (fewer-lean,
+  FEWER_CLAUDE_DIR (four hooks naming BIN and the store, the smaller start, the lean agent
+  setting and environment; no autoCompactWindow) and the three agents' files (fewer-lean,
   fewer-lean-workflow, fewer-worker), keeping the developer's own keys and a copy of the file as it was; the
   hook commands written there work when run as Claude Code runs them (sh -c, the event on
   stdin, no FEWER_HOME in the environment); also when fewer is registered already, not again
@@ -586,8 +586,8 @@ def check_savers(ctx):
     ok(cfg == {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": post}]}], "SessionStart": [{"hooks": [{"type": "command", "command": start}]}], "PreCompact": [{"hooks": [{"type": "command", "command": precompact}]}],
                          "UserPromptSubmit": [{"hooks": [{"type": "command", "command": ahead}]}]},
                # (Claude Code's own switches stay the user's: no workflows, Artifact or
-               # session-title switch, 1.2.0)
-               "autoCompactWindow": 100000, "env": {"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT": "0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off", "FEWER_HOME": c.home},
+               # session-title switch, 1.2.0; no autoCompactWindow, 1.2.1)
+               "env": {"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT": "0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off", "FEWER_HOME": c.home},
                "agent": "fewer-lean", "deniedMcpServers": [{"serverName": "fewer"}],
                **({"permissions": {"allow": read_rules(shlex.quote(ctx.bin))}} if read_rules(shlex.quote(ctx.bin)) else {})}, "savers: settings %r" % cfg)
     ok(stat.S_IMODE(os.stat(c.settings_file()).st_mode) == 0o600 and sorted(os.listdir(c.agent_dir("FEWER_CLAUDE_DIR"))) == ["agents", "commands", "settings.json"], "savers: a new file, mode 600, the agent's folder and the slash commands' folder")
@@ -700,6 +700,84 @@ def check_update_adds_new_rules(ctx):
     c.done()
 
 
+WINDOW_BACK = "✓ Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: quit VSCode or the terminal fully, then open it again (/clear is not enough)."
+
+
+def restarts(out):
+    """How many times `out` says to restart Claude Code (its wrapped lines joined)."""
+    return flat(out).count("Restart Claude Code")
+
+
+def as_1_2_0(c, window=100000, claimed=True):
+    """This version's install in case c made into what 1.0.0 to 1.2.0 left there (savers.rs at
+    v1.2.0): the line `"autoCompactWindow": window` right after fewer's hooks and, when claimed,
+    "lean:window" last in fewer's record (claimed=False: a window the developer set before fewer,
+    kept and not recorded). The settings' text as this version wrote it."""
+    text = open(c.settings_file(), encoding="utf-8").read()
+    old = {}
+    for k, v in json.loads(text).items():
+        old[k] = v
+        if k == "hooks":
+            old["autoCompactWindow"] = window
+    open(c.settings_file(), "w", encoding="utf-8").write(json.dumps(old, indent=2) + "\n")
+    if claimed:
+        c.put_config(re.sub(rb"(?m)^(savers\.lean = .+)$", rb"\1,lean:window", c.config()))
+    return text
+
+
+def check_old_window(ctx):
+    """fewer's own old autoCompactWindow line (1.0.0 to 1.2.0 wrote 100000, so Claude Code
+    compacted near 67,000 tokens) in a home as 1.2.0 left it: the update (`fewer install` again,
+    as `fewer update` runs it) and `fewer on` take it out, say WINDOW_BACK once and keep every
+    other setting and fewer's record but its claim; a second update says nothing of it; `off`
+    and uninstall take it out with the rest and say it once; a window the developer set before
+    fewer or changed since is kept and never mentioned."""
+    runs = {"update": ["install", "claude", "--yes"], "on": ["on"], "off": ["off"], "uninstall": ["uninstall", "claude", "--yes"]}
+    for way in ("update", "on", "off", "uninstall"):
+        c = Case(ctx, "old-window-" + way)
+        os.makedirs(c.agent_dir("FEWER_CLAUDE_DIR"))
+        open(c.settings_file(), "w").write('{\n  "model": "opus"\n}\n')
+        code, out, err = c.pipe(runs["update"])
+        ok(code == 0 and "autoCompactWindow" not in out and restarts(out) == 0 and "autoCompactWindow" not in (c.settings() or {}), "old window, %s: the fresh install %r\n%s" % (way, code, out))
+        record = c.config()
+        mine = as_1_2_0(c)
+        code, out, err = c.pipe(runs[way])
+        said = flat(out).count(WINDOW_BACK) == 1 and restarts(out) == 1
+        if way in ("update", "on"):
+            ok(code == 0 and err == "" and said and out.count("autoCompactWindow") == 1, "old window, %s: said once:\n%s%s" % (way, out, err))
+            ok(open(c.settings_file(), encoding="utf-8").read() == mine and c.config() == record, "old window, %s: every other setting and the record kept: %r %r" % (way, c.settings(), c.config()))
+            if way == "on":
+                ok(flat(out) == "✓ Fewer is on. To turn it off: fewer off " + WINDOW_BACK, "old window, on: %r" % out)
+            code, out, err = c.pipe(runs["update"])
+            ok(code == 0 and ("fewer is on already in %s.\n" % c.settings_file()) in out and "autoCompactWindow" not in out and restarts(out) == 0, "old window, %s: a second update:\n%s" % (way, out))
+            code, out, err = c.pipe(["off"])
+            ok(code == 0 and out == "✓ Fewer is off. To turn it on: fewer on\n" and c.settings() == {"model": "opus"}, "old window, %s: off then: %r\n%s" % (way, c.settings(), out))
+        else:
+            ok(code == 0 and said and c.settings() == {"model": "opus"}, "old window, %s: taken out and said once: %r\n%s%s" % (way, c.settings(), out, err))
+            if way == "off":
+                ok(flat(out) == "✓ Fewer is off. To turn it on: fewer on " + WINDOW_BACK, "old window, off: %r" % out)
+            code, out, err = c.pipe(runs[way])
+            ok(code == 0 and "autoCompactWindow" not in out and restarts(out) == 0, "old window, %s: again:\n%s" % (way, out))
+        c.done()
+    # the developer's own window: set before fewer (at fewer's old value), or changed since
+    for name, theirs in (("own-window", 100000), ("changed-window", 400000)):
+        c = Case(ctx, name)
+        os.makedirs(c.agent_dir("FEWER_CLAUDE_DIR"))
+        open(c.settings_file(), "w").write('{\n  "model": "opus"%s\n}\n' % (',\n  "autoCompactWindow": 100000' if name == "own-window" else ""))
+        outs = [c.pipe(runs["update"])]
+        if name == "changed-window":
+            as_1_2_0(c, window=theirs)
+        outs.append(c.pipe(runs["update"]))
+        ok((c.settings() or {}).get("autoCompactWindow") == theirs and b"lean:window" not in (c.config() or b"") and b"savers.lean = lean:agent," in (c.config() or b""), "%s: kept, and fewer's claim to it out of the record: %r %r" % (name, c.settings(), c.config()))
+        for args in (runs["on"], runs["update"], ["off"]):
+            outs.append(c.pipe(args))
+        ok(all(r[0] == 0 and "autoCompactWindow" not in r[1] + r[2] and restarts(r[1]) == 0 for r in outs), "%s: never mentioned: %r" % (name, outs))
+        ok(c.settings() == {"model": "opus", "autoCompactWindow": theirs}, "%s: kept by off: %r" % (name, c.settings()))
+        code, out, err = c.pipe(runs["uninstall"])
+        ok(code == 0 and "autoCompactWindow" not in out and c.settings() == {"model": "opus", "autoCompactWindow": theirs}, "%s: uninstall: %r\n%s" % (name, c.settings(), out))
+        c.done()
+
+
 def check_install_places(ctx):
     """What install.sh hands `fewer install` (the folder fewer was built from, the one it is in,
     the file it added the PATH line to) is recorded once fewer is in Claude Code; `fewer
@@ -808,7 +886,7 @@ def main():
     # WORK (safe_env.py)
     safe = safe_env.setup(work)
     ctx = Ctx(binary, work)
-    checks = [check_yes, check_no, check_dry_run, check_already, check_missing, check_claude_bin_required, check_not_terminal, check_exact_args, check_sessions_config, check_uninstall, check_savers, check_update_adds_new_rules, check_install_places, check_add_fails, check_misc, check_registered_command_serves]
+    checks = [check_yes, check_no, check_dry_run, check_already, check_missing, check_claude_bin_required, check_not_terminal, check_exact_args, check_sessions_config, check_uninstall, check_savers, check_update_adds_new_rules, check_old_window, check_install_places, check_add_fails, check_misc, check_registered_command_serves]
     only = safe.caller.get("CHECK_ONLY")
     for c in checks:
         if only and only not in c.__name__:

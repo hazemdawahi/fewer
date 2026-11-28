@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-6366F1?style=flat-square" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.2.0-818CF8?style=flat-square" alt="Version 1.2.0">
+  <img src="https://img.shields.io/badge/version-1.2.1-818CF8?style=flat-square" alt="Version 1.2.1">
 </p>
 
 <p align="center">

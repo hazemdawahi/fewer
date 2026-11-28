@@ -7,17 +7,16 @@
 //!   and compacted sessions;
 //! - a UserPromptSubmit hook, `<fewer> hook ahead`: read-ahead, what a message names (files, a
 //!   table, the last commit, a web page, a test run the user's rules allow) read and run before
-//!   Claude's first reply (ahead.rs);
-//! - `autoCompactWindow` (the setting Claude Code's /autocompact writes): long conversations
-//!   compacted earlier. Claude Code compacts at the window less 33,000 tokens (20,000 kept for
-//!   the reply, 13,000 for the summary; its code, version 2.1.287), and takes 100,000 at least.
+//!   Claude's first reply (ahead.rs).
 //!
-//! Nothing the developer set is changed: an `autoCompactWindow` already there is kept (and said
-//! so); a hook of ours already there is not added again (one from fewer in another
-//! place is pointed at this one). Every other key stays as it was, numbers as written.
-//! Uninstall takes away our hooks (wherever their fewer is) and the window only while it
-//! is still ours. In development the settings file is only the one in the folder set
-//! in FEWER_CLAUDE_DIR, never ~/.claude by itself.
+//! Nothing the developer set is changed: a hook of ours already there is not added again (one
+//! from fewer in another place is pointed at this one). Every other key stays as it was, numbers
+//! as written. Claude Code compacts long chats as it does without fewer: no `autoCompactWindow`
+//! is written. Versions 1.0.0 to 1.2.0 wrote one (100,000: Claude Code then compacted near 67,000
+//! tokens, not near the model's own limit); install, an update and `fewer on` take that line back
+//! out, as `fewer off` and uninstall do, only while it is still fewer's own (take_back_window).
+//! Uninstall takes away our hooks (wherever their fewer is). In development the settings file is
+//! only the one in the folder set in FEWER_CLAUDE_DIR, never ~/.claude by itself.
 
 use std::fs;
 use std::io::Write;
@@ -27,16 +26,15 @@ use std::path::{Path, PathBuf};
 use crate::json::{self, Json};
 use crate::sessions::Places;
 
-/// The window install sets: Claude Code then compacts past about WINDOW - 33,000 tokens. With
-/// the full start, 150k was the best on the sessions simulated; with a
-/// smaller start and short summaries, 120k has room
-/// again between a compaction's floor and the next one.
-pub const WINDOW: u64 = 120_000;
-/// Windows earlier versions set, taken back by uninstall as ours too.
-const OLD_WINDOWS: [u64; 1] = [150_000];
+/// The setting Claude Code's /autocompact writes, the developer's own: fewer writes none.
 pub const WINDOW_KEY: &str = "autoCompactWindow";
-/// How far below the window Claude Code compacts (20,000 for the reply, 13,000 the summary).
-pub const BELOW: u64 = 33_000;
+/// The autoCompactWindow 1.0.0 to 1.2.0 wrote, with "lean:window" in fewer's record (savers.lean).
+/// Taken back, never written now.
+pub const LEAN_WINDOW: u64 = 100_000;
+/// Every autoCompactWindow a version of fewer wrote: LEAN_WINDOW, and before 1.0.0 120,000 and
+/// 150,000 (with no record of it). Where fewer's record is gone (no savers.lean in the store),
+/// only these exact values are taken back as fewer's.
+const PAST_WINDOWS: [u64; 3] = [LEAN_WINDOW, 120_000, 150_000];
 
 /// Our hooks: (event, matcher, the argument after `hook`).
 const HOOKS: [(&str, Option<&str>, &str); 4] = [("PostToolUse", Some("Bash"), "post-bash"), ("SessionStart", None, "start"), ("PreCompact", None, "precompact"), ("UserPromptSubmit", None, "ahead")];
@@ -122,23 +120,13 @@ pub fn add(settings: &mut Json, home: Option<&str>, me: &str) -> Result<Vec<Stri
             }
         }
     }
-    match top.iter().find(|(k, _)| k == WINDOW_KEY) {
-        Some((_, v)) => said.push(format!("{WINDOW_KEY} kept as you set it: {v}")),
-        None => {
-            top.push((WINDOW_KEY.to_string(), Json::Num(WINDOW.to_string())));
-            said.push(format!("{WINDOW_KEY} = {WINDOW} added (compacts past about {} tokens)", group(WINDOW - BELOW)));
-        }
-    }
     *settings = after;
     Ok(said)
 }
 
-/// Take the savers away: our hooks, and the window when `window_by_value` and the hooks were
-/// there (an install from before fewer's record, which wrote WINDOW or an older value with
-/// its hooks: a window at such a value set by the developer is kept otherwise; fewer's own
-/// window goes by its record, remove_lean). Lists and objects left empty by it are removed.
-/// What was done.
-pub fn remove(settings: &mut Json, window_by_value: bool) -> Vec<String> {
+/// Take our hooks away (wherever their fewer is); lists and objects left empty by it are
+/// removed. fewer's old autoCompactWindow line is take_back_window's. What was done.
+pub fn remove(settings: &mut Json) -> Vec<String> {
     let mut said = Vec::new();
     let Json::Obj(top) = settings else { return said };
     if let Some(i) = top.iter().position(|(k, _)| k == "hooks")
@@ -165,35 +153,49 @@ pub fn remove(settings: &mut Json, window_by_value: bool) -> Vec<String> {
             top.remove(i);
         }
     }
-    let ours = |v: &Json| std::iter::once(WINDOW).chain(OLD_WINDOWS).any(|w| *v == Json::Num(w.to_string()));
-    if window_by_value
-        && !said.is_empty()
-        && let Some(i) = top.iter().position(|(k, v)| k == WINDOW_KEY && ours(v))
-    {
-        top.remove(i);
-        said.push(format!("{WINDOW_KEY} removed"));
-    }
     said
+}
+
+/// Whether one of our hooks is in `settings`, naming fewer in any folder (the mark every
+/// version of fewer left).
+fn hooked(settings: &Json) -> bool {
+    let Some(hooks) = settings.get("hooks") else { return false };
+    HOOKS.iter().any(|(event, _, which)| matches!(hooks.get(event), Some(Json::Arr(list)) if list.iter().any(|e| our_hook(e, which).is_some())))
+}
+
+/// Take fewer's own old autoCompactWindow line back out of `settings`, which this version never
+/// writes (install, an update and `fewer on`; `fewer off` and uninstall too). `record` is
+/// savers.lean as fewer's store holds it (not full_records), None when the store holds no
+/// savers.lean at all. Call it before fewer's hooks are taken out or added: it looks at the
+/// ones there.
+/// - "lean:window" in the record (1.0.0 to 1.2.0): the line goes while it is still LEAN_WINDOW;
+///   a value the developer changed it to since is theirs, kept.
+/// - no record at all (None: an install older than the record, or the store removed): the line
+///   goes only where fewer's hooks or marks are there, and only at a value fewer wrote, exactly.
+/// - a record without "lean:window", an empty one too (1.0.0 to 1.2.0 record what they wrote,
+///   nothing when the developer had their own agent and the env values set, and the window was
+///   there before fewer), or no mark of fewer: the window is the developer's, kept.
+///
+/// The record's claim is RETIRED, so the caller drops it from the record either way. Whether
+/// the line was taken out.
+pub fn take_back_window(settings: &mut Json, record: Option<&str>) -> bool {
+    let claimed = record.is_some_and(|r| r.split(',').any(|p| p == "lean:window"));
+    let marks = record.is_none() && (hooked(settings) || marked(settings));
+    let Json::Obj(top) = settings else { return false };
+    let Some(i) = top.iter().position(|(k, _)| k == WINDOW_KEY) else { return false };
+    let is = |w: u64| top[i].1 == Json::Num(w.to_string());
+    let fewers = if claimed { is(LEAN_WINDOW) } else { marks && PAST_WINDOWS.into_iter().any(is) };
+    if fewers {
+        top.remove(i);
+    }
+    fewers
 }
 
 /// Whether any of the savers is in `settings` (the tests').
 #[cfg(test)]
 pub fn present(settings: &Json) -> bool {
     let mut copy = settings.clone();
-    !remove(&mut copy, true).is_empty()
-}
-
-/// 1234567 as "1,234,567".
-fn group(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    !remove(&mut copy).is_empty()
 }
 
 /// The text of `v` as people write settings.json: two spaces a level, one field a line.
@@ -349,18 +351,20 @@ mod tests {
         // an early version's record and settings: the add-ons off in four ways
         let v1 = "lean:agent,lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:connectors,lean:deny-web,lean:allow-none,lean:window";
         let (old, kept) = retired_parts(v1);
-        // (the session titles too, since 1.2.0)
-        assert_eq!(old, "lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:connectors,lean:deny-web,lean:allow-none");
-        assert_eq!(kept, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:window");
+        // (the session titles too, since 1.2.0; the autoCompactWindow line, since 1.2.1)
+        assert_eq!(old, "lean:env:ENABLE_CLAUDEAI_MCP_SERVERS,lean:env:CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS,lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:connectors,lean:deny-web,lean:allow-none,lean:window");
+        assert_eq!(kept, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME");
         let mut s = json::parse(br#"{"model":"opus","env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"false","CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS":"1","CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH":"1","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","disableClaudeAiConnectors":true,"deniedMcpServers":[{"serverUrl":"https://*"}],"allowedMcpServers":[{"serverName":"fewer-10x-none"}],"autoCompactWindow":100000}"#).unwrap();
         assert!(hides_own_server(&s));
+        // (as install does it: the window line first, by the record as it was)
+        assert!(take_back_window(&mut s, Some(v1)));
         let said = remove_lean(&mut s, &old);
         assert_eq!(said.len(), 7, "{said:?}");
         // then this version's plan: only fewer's own server off
         assert_eq!(lean_plan(&s, Some("/w/store")), ["deny-own"]);
-        let rec = add_lean(&mut s, &["deny-own".to_string()], Some("/w/store"), false).unwrap();
+        let rec = add_lean(&mut s, &["deny-own".to_string()], Some("/w/store")).unwrap();
         assert_eq!(rec, "lean:deny-own");
-        assert_eq!(s.to_string(), r#"{"model":"opus","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","autoCompactWindow":100000,"deniedMcpServers":[{"serverName":"fewer"}]}"#);
+        assert_eq!(s.to_string(), r#"{"model":"opus","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#);
         assert!(hides_own_server(&s) && lean_plan(&s, Some("/w/store")).is_empty());
         // a value the developer changed since an early version wrote it is theirs: kept
         let mut t = json::parse(br#"{"env":{"CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH":"500"}}"#).unwrap();
@@ -399,9 +403,10 @@ mod tests {
             "SessionStart hook added: /opt/fewer/fewer hook start",
             "PreCompact hook added: /opt/fewer/fewer hook precompact",
             "UserPromptSubmit hook added: /opt/fewer/fewer hook ahead",
-            "autoCompactWindow = 120000 added (compacts past about 87,000 tokens)",
         ]);
         let t = s.to_string();
+        // (no autoCompactWindow: Claude Code compacts as it does without fewer)
+        assert!(!t.contains(WINDOW_KEY), "{t}");
         assert!(t.contains(r#""matcher":"Edit""#) && t.contains(r#""cleanupPeriodDays":30.0"#), "{t}");
         assert!(t.contains(r#"{"matcher":"Bash","hooks":[{"type":"command","command":"/opt/fewer/fewer hook post-bash"}]}"#), "{t}");
         assert!(present(&s));
@@ -409,7 +414,7 @@ mod tests {
         let again = add(&mut s, None, ME).unwrap();
         assert!(again[0].starts_with("PostToolUse hook there already") && again[1].starts_with("SessionStart hook there already"), "{again:?}");
         assert!(again[2].starts_with("PreCompact hook there already") && again[3].starts_with("UserPromptSubmit hook there already"), "{again:?}");
-        assert_eq!(again[4], "autoCompactWindow kept as you set it: 120000");
+        assert_eq!(again.len(), 4, "{again:?}");
         assert_eq!(s.to_string(), t);
         // fewer moved: our hooks follow it, nothing is added twice
         let moved = add(&mut s, None, "/new place/fewer").unwrap();
@@ -420,35 +425,21 @@ mod tests {
         assert_eq!(with_home[1], "SessionStart hook pointed at this fewer: FEWER_HOME='/w/my store' /opt/fewer/fewer hook start");
         assert_eq!(crate::hook::pipelines("FEWER_HOME='/w/my store' /opt/fewer/fewer hook start"), [vec![vec!["FEWER_HOME=/w/my store", "/opt/fewer/fewer", "hook", "start"]]]);
         // uninstall: ours away (wherever fewer is), the developer's own hook kept
-        let gone = remove(&mut s, true);
-        assert_eq!(gone, ["PostToolUse hook removed", "SessionStart hook removed", "PreCompact hook removed", "UserPromptSubmit hook removed", "autoCompactWindow removed"]);
+        let gone = remove(&mut s);
+        assert_eq!(gone, ["PostToolUse hook removed", "SessionStart hook removed", "PreCompact hook removed", "UserPromptSubmit hook removed"]);
         assert_eq!(s.to_string(), theirs);
         assert!(!present(&s));
-        // a window the developer set is theirs: kept by add and by remove
+        // a window the developer set is theirs: add and remove leave it as it is (fewer's own old
+        // line is take_back_window's)
         let mut w = json::parse(br#"{"autoCompactWindow":300000}"#).unwrap();
-        assert_eq!(add(&mut w, None, ME).unwrap()[4], "autoCompactWindow kept as you set it: 300000");
-        // a window an earlier version set (150000) with its hooks is taken back as ours; the same
-        // value alone, or under fewer's record (window_by_value false), is the developer's
-        let mut old = Json::Obj(Vec::new());
-        add(&mut old, None, ME).unwrap();
-        if let Json::Obj(top) = &mut old {
-            top.iter_mut().filter(|(k, _)| k == WINDOW_KEY).for_each(|(_, v)| *v = Json::Num("150000".into()));
-        }
-        let mut kept = old.clone();
-        assert_eq!(remove(&mut old, true).last().map(String::as_str), Some("autoCompactWindow removed"));
-        assert!(!remove(&mut kept, false).iter().any(|x| x.starts_with(WINDOW_KEY)));
-        assert_eq!(kept.to_string(), r#"{"autoCompactWindow":150000}"#);
-        for v in ["120000", "150000"] {
-            let mut alone = json::parse(format!(r#"{{"autoCompactWindow":{v}}}"#).as_bytes()).unwrap();
-            assert!(remove(&mut alone, true).is_empty(), "{v}");
-        }
-        remove(&mut w, true);
+        assert_eq!(add(&mut w, None, ME).unwrap().len(), 4);
+        assert_eq!(remove(&mut w).len(), 4);
         assert_eq!(w.to_string(), r#"{"autoCompactWindow":300000}"#);
         // an empty settings file: everything added, then everything removed
         let mut e = Json::Obj(Vec::new());
         add(&mut e, None, "/a b/fewer").unwrap();
         assert!(e.to_string().contains(r#""command":"'/a b/fewer' hook start""#), "{e}");
-        remove(&mut e, true);
+        remove(&mut e);
         assert_eq!(e.to_string(), "{}");
         // not an object, or hooks of another shape: an error, and nothing changed
         for bad in ["[]", r#"{"hooks":[]}"#, r#"{"hooks":{"PostToolUse":{}}}"#] {
@@ -474,14 +465,14 @@ mod tests {
         assert_eq!(write(&file, None, &j).unwrap(), None);
         let text = fs::read_to_string(&file).unwrap();
         assert!(text.starts_with("{\n  \"hooks\": {\n    \"PostToolUse\": [\n      {\n        \"matcher\": \"Bash\",\n"), "{text}");
-        assert!(text.ends_with("  \"autoCompactWindow\": 120000\n}\n"), "{text}");
+        assert!(text.ends_with("hook ahead\"\n          }\n        ]\n      }\n    ]\n  }\n}\n") && !text.contains(WINDOW_KEY), "{text}");
         assert_eq!(json::parse(text.as_bytes()).unwrap(), j);
         #[cfg(unix)]
         assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         // a file there: the old one kept next to it, its mode kept
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
         let (was, mut j) = read(&file).unwrap();
-        remove(&mut j, true);
+        remove(&mut j);
         let copy = write(&file, was.as_deref(), &j).unwrap().unwrap();
         assert_eq!(fs::read_to_string(&copy).unwrap(), text);
         assert!(copy.file_name().unwrap().to_str().unwrap().starts_with("settings.json.before-fewer-"));
@@ -772,8 +763,9 @@ const OLD_LEAN_ENV: [(&str, &str); 5] = [
 ];
 /// The parts an earlier version of fewer wrote that this version takes back on its own when it
 /// finds them (`fewer install`, `fewer on`): the add-ons off, in each of the ways it had; the
-/// session titles off (before 1.2.0).
-pub const RETIRED: [&str; 8] = [
+/// session titles off (before 1.2.0); the autoCompactWindow line (before 1.2.1: take_back_window
+/// takes it back, not remove_lean).
+pub const RETIRED: [&str; 9] = [
     "lean:connectors",
     "lean:deny-web",
     "lean:allow-none",
@@ -782,6 +774,7 @@ pub const RETIRED: [&str; 8] = [
     "lean:env:CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH",
     "lean:env:CLAUDE_CODE_DISABLE_CLAUDE_MDS",
     "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE",
+    "lean:window",
 ];
 /// An early version's entry in `deniedMcpServers`: Claude Code's connections to web add-ons off. Taken
 /// back, never written now.
@@ -801,8 +794,6 @@ const OLD_ALLOW_NONE: &[&str] = &["cmlog-10x: add-ons through cmlog-search", "cm
 pub(crate) fn is_allow_none(e: &Json) -> bool {
     *e == allow_none() || OLD_ALLOW_NONE.iter().any(|n| *e == Json::Obj(vec![("serverName".to_string(), Json::from(*n))]))
 }
-/// The window with the lean start: the floor after a compaction is small, so 100k has room.
-pub const LEAN_WINDOW: u64 = 100_000;
 /// The first line of an agent's file after its front matter: fewer's mark, so only a file of
 /// fewer's is ever replaced or removed.
 const LEAN_MARK: &str = "<!-- fewer's lean mode: written by fewer install; uninstall removes it -->";
@@ -1126,11 +1117,12 @@ pub fn marked(settings: &Json) -> bool {
 
 /// The records of everything fewer may have written (the smaller start's and the lean
 /// mode's), for settings whose record is gone: each part is taken back only at fewer's own value
-/// (the reads' rules naming fewer by its name, or as `word` names it now).
+/// (the reads' rules naming fewer by its name, or as `word` names it now). The old
+/// autoCompactWindow line is not in them: take_back_window looks at the record as it was.
 pub fn full_records(word: &str) -> (String, String) {
     let mut lean: Vec<String> = vec!["lean:agent".into()];
     lean.extend(LEAN_ENV.iter().chain(OLD_LEAN_ENV.iter()).map(|(k, _)| format!("lean:env:{k}")));
-    lean.extend(["lean:env:FEWER_HOME", "lean:connectors", "lean:deny-web", "lean:allow-none", "lean:deny-own", "lean:window"].map(String::from));
+    lean.extend(["lean:env:FEWER_HOME", "lean:connectors", "lean:deny-web", "lean:allow-none", "lean:deny-own"].map(String::from));
     for w in if word == "fewer" { vec!["fewer"] } else { vec!["fewer", word] } {
         lean.extend(read_rules(w).into_iter().map(|r| format!("lean:allow:{r}")));
     }
@@ -1152,10 +1144,9 @@ pub fn deny_web() -> Json {
     Json::Obj(vec![("serverUrl".to_string(), Json::from(DENY_WEB))])
 }
 
-/// Set fewer as planned; the window goes to LEAN_WINDOW when it is fewer's own (or unset),
-/// never when the developer set one before (`theirs`: kept as it is, even at a value fewer
-/// once wrote). The record of what was put there.
-pub fn add_lean(settings: &mut Json, plan: &[String], home: Option<&str>, theirs: bool) -> Result<String, String> {
+/// Set fewer as planned (no autoCompactWindow: Claude Code compacts as it does without fewer).
+/// The record of what was put there.
+pub fn add_lean(settings: &mut Json, plan: &[String], home: Option<&str>) -> Result<String, String> {
     let mut after = settings.clone();
     let Json::Obj(top) = &mut after else { return Err("it does not hold a JSON object".into()) };
     let mut record = Vec::new();
@@ -1189,24 +1180,12 @@ pub fn add_lean(settings: &mut Json, plan: &[String], home: Option<&str>, theirs
             record.push(format!("lean:allow:{rule}"));
         }
     }
-    // the window: fewer's own (or none) becomes the lean one; the developer's stays
-    let ours = |v: &Json| !theirs && std::iter::once(WINDOW).chain(OLD_WINDOWS).any(|w| *v == Json::Num(w.to_string()));
-    match top.iter().position(|(k, _)| k == WINDOW_KEY) {
-        Some(i) if ours(&top[i].1) => {
-            top[i].1 = Json::Num(LEAN_WINDOW.to_string());
-            record.push("lean:window".to_string());
-        }
-        None => {
-            top.push((WINDOW_KEY.to_string(), Json::Num(LEAN_WINDOW.to_string())));
-            record.push("lean:window".to_string());
-        }
-        _ => {}
-    }
     *settings = after;
     Ok(record.join(","))
 }
 
-/// Take back what the record says fewer put there, while it is still as fewer set it.
+/// Take back what the record says fewer put there, while it is still as fewer set it. An old
+/// record's "lean:window" is passed over: take_back_window takes that line back.
 pub fn remove_lean(settings: &mut Json, record: &str) -> Vec<String> {
     let mut said = Vec::new();
     let Json::Obj(top) = settings else { return said };
@@ -1216,12 +1195,6 @@ pub fn remove_lean(settings: &mut Json, record: &str) -> Vec<String> {
                 if let Some(i) = top.iter().position(|(k, v)| k == "agent" && v.str() == Some(LEAN_AGENT)) {
                     top.remove(i);
                     said.push("agent removed".into());
-                }
-            }
-            "window" => {
-                if let Some(i) = top.iter().position(|(k, v)| k == WINDOW_KEY && *v == Json::Num(LEAN_WINDOW.to_string())) {
-                    top.remove(i);
-                    said.push(format!("{WINDOW_KEY} removed"));
                 }
             }
             "connectors" => {
@@ -1368,19 +1341,20 @@ mod lean_tests {
         // (the developer's add-ons and claude.ai's connectors stay as they are: fewer's own server
         // alone is kept off)
         assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "env:FEWER_HOME", "deny-own"]);
-        let record = add_lean(&mut s, &plan, Some("/w/store"), false).unwrap();
-        assert_eq!(record, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own,lean:window");
-        assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"autoCompactWindow":100000,"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#);
+        let record = add_lean(&mut s, &plan, Some("/w/store")).unwrap();
+        assert_eq!(record, "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own");
+        // (the developer's window as it was: fewer writes none)
+        assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/w/store"},"autoCompactWindow":120000,"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#);
         assert!(lean_plan(&s, Some("/w/store")).is_empty() && hides_own_server(&s));
         let said = remove_lean(&mut s, &record);
-        assert_eq!(said.len(), 6, "{said:?}");
-        assert_eq!(s.to_string(), r#"{"env":{"ENABLE_CLAUDEAI_MCP_SERVERS":"true"}}"#);
+        assert_eq!(said.len(), 5, "{said:?}");
+        assert_eq!(s.to_string(), theirs);
         // the developer's own deny list: ours added at its end and taken back alone
         let mut d2 = json::parse(br#"{"deniedMcpServers":[{"serverName":"x"}]}"#).unwrap();
         let plan = lean_plan(&d2, None);
         assert_eq!(plan, ["agent", "env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT", "env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER", "deny-own"]);
-        let record = add_lean(&mut d2, &plan, None, false).unwrap();
-        assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"},{"serverName":"fewer"}],"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"autoCompactWindow":100000}"#);
+        let record = add_lean(&mut d2, &plan, None).unwrap();
+        assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"},{"serverName":"fewer"}],"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}"#);
         let said = remove_lean(&mut d2, &record);
         assert!(said.contains(&"deniedMcpServers fewer removed".to_string()), "{said:?}");
         assert_eq!(d2.to_string(), r#"{"deniedMcpServers":[{"serverName":"x"}]}"#);
@@ -1404,14 +1378,209 @@ mod lean_tests {
         let mut old = json::parse(br#"{"env":{"CLAUDE_CODE_DISABLE_CLAUDE_MDS":"1"}}"#).unwrap();
         assert_eq!(remove_lean(&mut old, "lean:env:CLAUDE_CODE_DISABLE_CLAUDE_MDS"), ["CLAUDE_CODE_DISABLE_CLAUDE_MDS removed"]);
         assert_eq!(old.to_string(), "{}");
-        // a window the developer set is theirs
-        let mut w = json::parse(br#"{"autoCompactWindow":300000}"#).unwrap();
-        let r = add_lean(&mut w, &[], None, false).unwrap();
-        // the developer's own window, even at a value fewer once wrote: kept, not recorded
-        let mut mine = json::parse(br#"{"autoCompactWindow":120000}"#).unwrap();
-        assert_eq!(add_lean(&mut mine, &[], None, true).unwrap(), "");
-        assert_eq!(mine.to_string(), r#"{"autoCompactWindow":120000}"#);
-        assert_eq!((r.as_str(), w.to_string().as_str()), ("", r#"{"autoCompactWindow":300000}"#));
+        // no window written or changed, whatever is there, nor any recorded
+        for was in ["{}", r#"{"autoCompactWindow":300000}"#, r#"{"autoCompactWindow":100000}"#] {
+            let before = json::parse(was.as_bytes()).unwrap();
+            let mut w = before.clone();
+            let mut plan = lean_plan(&w, None);
+            plan.extend(reads_plan(&w, "fewer"));
+            let r = add_lean(&mut w, &plan, None).unwrap();
+            assert!(!r.contains("window") && !r.is_empty(), "{r}");
+            assert_eq!(w.get(WINDOW_KEY), before.get(WINDOW_KEY), "{was}");
+        }
         fs::remove_dir_all(&d).unwrap();
+    }
+}
+
+/// fewer's old autoCompactWindow line, taken back from the settings and records that 1.0.0,
+/// 1.1.0 and 1.2.0 left (their install_check and savers tests).
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    /// fewer on as 1.0.0 and 1.1.0 left it (alike), a minimal install (no FEWER_HOME, no read
+    /// rules): the settings, savers.start and savers.lean.
+    const SET_1_0: &str = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/b/fewer hook post-bash"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"/b/fewer hook start"}]}],"PreCompact":[{"hooks":[{"type":"command","command":"/b/fewer hook precompact"}]}]},"autoCompactWindow":100000,"env":{"CLAUDE_CODE_DISABLE_WORKFLOWS":"1","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"enableArtifact":false,"agent":"fewer-lean","deniedMcpServers":[{"serverName":"fewer"}]}"#;
+    const START_1_0: &str = "workflows,artifact";
+    const LEAN_1_0: &str = "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:deny-own,lean:window";
+    /// As 1.2.0 left it, a fresh install or 1.0.0 and 1.1.0 brought up to it (savers.start empty).
+    const SET_1_2: &str = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/b/fewer hook post-bash"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"/b/fewer hook start"}]}],"PreCompact":[{"hooks":[{"type":"command","command":"/b/fewer hook precompact"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/b/fewer hook ahead"}]}]},"autoCompactWindow":100000,"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"deniedMcpServers":[{"serverName":"fewer"}]}"#;
+    const LEAN_1_2: &str = "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:deny-own,lean:window";
+    /// 1.2.0 with FEWER_HOME and the reads' rules, a later update's rule after "lean:window".
+    const SET_1_2_HOME: &str = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"FEWER_HOME=/h /b/fewer hook post-bash"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"FEWER_HOME=/h /b/fewer hook start"}]}],"PreCompact":[{"hooks":[{"type":"command","command":"FEWER_HOME=/h /b/fewer hook precompact"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"FEWER_HOME=/h /b/fewer hook ahead"}]}]},"autoCompactWindow":100000,"agent":"fewer-lean","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":"/h"},"deniedMcpServers":[{"serverName":"fewer"}],"permissions":{"allow":["Bash(/b/fewer read:*)","Bash(/b/fewer skill:*)"]}}"#;
+    const LEAN_1_2_HOME: &str = "lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own,lean:allow:Bash(/b/fewer read:*),lean:window,lean:allow:Bash(/b/fewer skill:*)";
+    const GOLDEN: [(&str, &str, &str); 3] = [(SET_1_0, START_1_0, LEAN_1_0), (SET_1_2, "", LEAN_1_2), (SET_1_2_HOME, "", LEAN_1_2_HOME)];
+
+    fn parse(s: &str) -> Json {
+        json::parse(s.as_bytes()).unwrap()
+    }
+    /// `s` with its window at `v` instead (JSON as written).
+    fn at(s: &str, v: &str) -> String {
+        s.replace(r#""autoCompactWindow":100000"#, &format!(r#""autoCompactWindow":{v}"#))
+    }
+    /// `s` without its window line.
+    fn without(s: &str) -> String {
+        s.replace(r#""autoCompactWindow":100000,"#, "")
+    }
+
+    #[test]
+    fn install_update_and_on_take_fewers_old_line_back_once() {
+        for (set, _, lean) in GOLDEN {
+            let mut s = parse(set);
+            assert!(take_back_window(&mut s, Some(lean)), "{set}");
+            // (the line alone: every other key as it was, in its place)
+            assert_eq!(s.to_string(), without(set));
+            // the claim leaves the record (RETIRED), with nothing else of it
+            let (retired, kept) = retired_parts(lean);
+            assert!(retired.split(',').any(|p| p == "lean:window") && !kept.contains("window"), "{retired} / {kept}");
+            assert_eq!(kept.split(',').count() + retired.split(',').count(), lean.split(',').count());
+            // a second run: nothing to take back, by the record as it is now or as it was, or none
+            for record in [Some(kept.as_str()), Some(lean), Some(""), None] {
+                assert!(!take_back_window(&mut s, record), "{record:?}");
+                assert_eq!(s.to_string(), without(set));
+            }
+        }
+        // (the record is enough: fewer's hooks taken out by hand, its line as it wrote it)
+        let mut s = parse(r#"{"model":"opus","autoCompactWindow":100000}"#);
+        assert!(take_back_window(&mut s, Some(LEAN_1_2)) && s.to_string() == r#"{"model":"opus"}"#);
+        // (the record of a version that wrote no window: nothing retired)
+        assert_eq!(retired_parts("lean:agent,lean:deny-own").0, "");
+    }
+
+    #[test]
+    fn off_and_uninstall_take_it_back_with_the_rest() {
+        for (set, start, lean) in GOLDEN {
+            let mut s = parse(set);
+            assert!(take_back_window(&mut s, Some(lean)));
+            remove(&mut s);
+            remove_start(&mut s, start);
+            remove_lean(&mut s, lean);
+            assert_eq!(s.to_string(), "{}", "{set}");
+            // (off again: the record cleared, nothing of fewer left)
+            assert!(!take_back_window(&mut s, Some("")));
+            // the hooks and the record's other parts never take the window out by themselves
+            let mut s = parse(set);
+            remove(&mut s);
+            remove_start(&mut s, start);
+            remove_lean(&mut s, lean);
+            assert_eq!(s.to_string(), r#"{"autoCompactWindow":100000}"#);
+            // (and with every mark gone, the record cleared or none, it is not known as fewer's)
+            assert!(!take_back_window(&mut s, Some("")) && !take_back_window(&mut s, None));
+        }
+    }
+
+    #[test]
+    fn a_window_the_developer_changed_since_is_kept() {
+        // (a value fewer wrote before the record, or the same number written another way, is a
+        // change too: the record says fewer wrote 100000)
+        for v in ["400000", "1000000", "120000", "150000", "99999", "100000.0", "\"100000\""] {
+            for (set, start, lean) in GOLDEN {
+                let changed = at(set, v);
+                let mut s = parse(&changed);
+                assert!(!take_back_window(&mut s, Some(lean)), "{v}");
+                assert_eq!(s.to_string(), changed);
+                // (the claim leaves the record all the same: later the value is theirs)
+                let (_, kept) = retired_parts(lean);
+                assert!(!take_back_window(&mut s, Some(&kept)) && s.to_string() == changed, "{v}");
+                // fewer off keeps it too
+                remove(&mut s);
+                remove_start(&mut s, start);
+                remove_lean(&mut s, lean);
+                assert_eq!(s.to_string(), format!(r#"{{"autoCompactWindow":{v}}}"#));
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_the_developer_set_before_fewer_is_kept() {
+        // with fewer's marks: install kept it and left it out of the record
+        for v in ["100000", "120000", "150000", "300000"] {
+            for (set, start, lean) in GOLDEN {
+                let theirs = at(set, v);
+                let unclaimed = lean.replace(",lean:window", "");
+                let mut s = parse(&theirs);
+                assert!(!take_back_window(&mut s, Some(&unclaimed)), "{v}");
+                assert_eq!(s.to_string(), theirs);
+                remove(&mut s);
+                remove_start(&mut s, start);
+                remove_lean(&mut s, &unclaimed);
+                assert_eq!(s.to_string(), format!(r#"{{"autoCompactWindow":{v}}}"#));
+            }
+        }
+        // without them: nothing of fewer in the settings (a hook of the developer's own is no
+        // mark), and no record or one without "lean:window"
+        let unclaimed = LEAN_1_2.replace(",lean:window", "");
+        for v in ["100000", "120000", "150000"] {
+            for theirs in [
+                format!(r#"{{"autoCompactWindow":{v}}}"#),
+                format!(r#"{{"model":"opus","hooks":{{"SessionStart":[{{"hooks":[{{"type":"command","command":"/x/fewerer hook start"}}]}}]}},"autoCompactWindow":{v}}}"#),
+            ] {
+                let mut s = parse(&theirs);
+                for record in [None, Some(""), Some(unclaimed.as_str())] {
+                    assert!(!take_back_window(&mut s, record), "{theirs}, {record:?}");
+                }
+                assert_eq!(s.to_string(), theirs);
+            }
+        }
+    }
+
+    #[test]
+    fn with_no_record_only_a_value_fewer_wrote_goes() {
+        // the store removed after 1.0.0, 1.1.0 or 1.2.0: fewer's hooks there, no record
+        for (set, _, _) in GOLDEN {
+            let mut s = parse(set);
+            assert!(take_back_window(&mut s, None), "{set}");
+            assert_eq!(s.to_string(), without(set));
+        }
+        // an install from before 1.0.0 (its hooks, no record): 120000 or 150000 too, exactly
+        let hooks_only = r#"{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/b/fewer hook post-bash"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"/b/fewer hook start"}]}],"PreCompact":[{"hooks":[{"type":"command","command":"/b/fewer hook precompact"}]}]},"autoCompactWindow":100000}"#;
+        for (v, gone) in [("100000", true), ("120000", true), ("150000", true), ("120001", false), ("200000", false), ("100000.0", false), ("\"120000\"", false)] {
+            let set = at(hooks_only, v);
+            let mut s = parse(&set);
+            assert_eq!(take_back_window(&mut s, None), gone, "{v}");
+            assert_eq!(s.get(WINDOW_KEY).is_none(), gone, "{v}");
+        }
+        // fewer's other marks without its hooks: its agent, or FEWER_HOME in env
+        for marked in [r#"{"agent":"fewer-lean","autoCompactWindow":100000}"#, r#"{"env":{"FEWER_HOME":"/h"},"autoCompactWindow":120000}"#] {
+            let mut s = parse(marked);
+            assert!(take_back_window(&mut s, None), "{marked}");
+            assert!(s.get(WINDOW_KEY).is_none());
+        }
+        // settings that are not an object, or have no window: nothing
+        for odd in ["[]", "{}", r#"{"hooks":[]}"#] {
+            let mut s = parse(odd);
+            assert!(!take_back_window(&mut s, Some(LEAN_1_2)) && !take_back_window(&mut s, None), "{odd}");
+            assert_eq!(s.to_string(), odd);
+        }
+    }
+
+    /// fewer on as 1.2.0 left it over the developer's own agent and both env values, their
+    /// window there before fewer: fewer wrote none of its lean part, so it recorded nothing
+    /// (savers.lean and savers.start empty; real installs have no FEWER_HOME).
+    const SET_1_2_OWN: &str = r#"{"model":"opus","agent":"mine","env":{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"},"autoCompactWindow":100000,"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/b/fewer hook post-bash"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"/b/fewer hook start"}]}],"PreCompact":[{"hooks":[{"type":"command","command":"/b/fewer hook precompact"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/b/fewer hook ahead"}]}]}}"#;
+    /// As 1.0.0 (1.1.0 alike) left it there: the session titles off, its one lean part, which
+    /// this version retires, so an update leaves savers.lean empty.
+    const LEAN_1_0_OWN: &str = "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE";
+
+    #[test]
+    fn an_empty_record_is_a_record_the_window_was_theirs() {
+        for v in ["100000", "120000", "150000"] {
+            let theirs = at(SET_1_2_OWN, v);
+            let mut s = parse(&theirs);
+            // install, an update and fewer on (savers.lean empty, or emptied by an update from
+            // 1.0.0's), off and uninstall: kept with fewer's hooks there and after
+            assert_eq!(retired_parts(LEAN_1_0_OWN), (LEAN_1_0_OWN.to_string(), String::new()));
+            for record in [Some(""), Some(LEAN_1_0_OWN)] {
+                assert!(!take_back_window(&mut s, record), "{v}, {record:?}");
+                assert_eq!(s.to_string(), theirs);
+            }
+            remove(&mut s);
+            assert!(!take_back_window(&mut s, Some("")), "{v}");
+            assert_eq!(s.to_string(), format!(r#"{{"model":"opus","agent":"mine","env":{{"CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}},"autoCompactWindow":{v}}}"#));
+            // (no savers.lean in the store at all, fewer's hooks there: a value a past fewer
+            // wrote, exactly, cannot be told from theirs, and goes)
+            let mut s = parse(&theirs);
+            assert!(take_back_window(&mut s, None), "{v}");
+        }
     }
 }

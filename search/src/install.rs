@@ -20,12 +20,14 @@
 //!    (install is for Claude Code). Not when they are saved already or Claude Code's folder is
 //!    not known.
 //! 7. Turn fewer on under the same yes (savers.rs), after showing
-//!    what it changes in Claude Code's settings.json: the token savers (three hooks and an
-//!    earlier compaction), a smaller start, and fewer's lean agents (agents/fewer-lean.md,
+//!    what it changes in Claude Code's settings.json: the token savers (four hooks), a smaller
+//!    start, and fewer's lean agents (agents/fewer-lean.md,
 //!    fewer-lean-workflow.md and fewer-worker.md). Also when fewer is registered already; not again when it is on
 //!    already. A copy of the file as it was is kept next to it; `fewer off` takes it
 //!    back. The file is the one in Claude Code's folder (FEWER_CLAUDE_DIR, else its usual place;
-//!    in development without FEWER_CLAUDE_DIR, nothing is changed).
+//!    in development without FEWER_CLAUDE_DIR, nothing is changed). Claude Code compacts long
+//!    chats as it does without fewer: the autoCompactWindow line 1.0.0 to 1.2.0 wrote is taken
+//!    back out while it is still fewer's (savers::take_back_window), and WINDOW_BACK said then.
 //! 8. One line of use: open a new chat (or reopen an old one: a chat takes its setup when it
 //!    opens), and ask Claude to run the tests and say what fails
 //!
@@ -63,6 +65,17 @@ pub(crate) const NAME: &str = "fewer";
 
 /// The line of use an install ends with.
 pub const USE_LINE: &str = "\nNext: in Claude Code, open a new chat (or close and reopen an old one) and ask it to run your tests and tell you what fails\n  fewer tokens   the tokens fewer saved\n  fewer off      turn fewer off (fewer on turns it back on)";
+
+/// Said once, exactly when install, an update, `fewer on`, `fewer off` or uninstall took
+/// fewer's own old autoCompactWindow line out of Claude Code's settings.json (1.0.0 to 1.2.0
+/// wrote it: savers::take_back_window); never otherwise. A Claude Code that runs may keep the
+/// window it started with, so it is started again once.
+const WINDOW_BACK: &str = "Took out Fewer's old autoCompactWindow line, so long chats compact as normal again. Restart Claude Code once: quit VSCode or the terminal fully, then open it again (/clear is not enough).";
+
+/// WINDOW_BACK, as fewer's other done lines are written.
+fn say_window_back(t: &mut Talk) -> io::Result<()> {
+    writeln!(t.out, "{}", wrapped("✓ ", "  ", WINDOW_BACK))
+}
 
 const INSTALL_HELP: &str = "\
 fewer install - put fewer into Claude Code: its settings, its MCP server, your chats saved
@@ -958,19 +971,6 @@ fn now_utc() -> String {
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{sec:02}")
 }
 
-/// 1234567 as "1,234,567".
-fn group(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 /// Step 7, fewer (savers.rs): the token savers, a smaller start
 /// and the lean agents, turned on by install under the yes that registers fewer (a copy of the
 /// settings kept, one command to undo): shown, then
@@ -1007,26 +1007,29 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
     let mut after = now.clone();
     // (an update from an early version: what it turned off and this version keeps on (the add-ons), taken
     // back first at fewer's own values, and out of the record)
-    let old_lean = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.lean").map(str::to_string)).unwrap_or_default();
+    // (None: the store holds no record at all; an empty one is a record of nothing)
+    let lean_record = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.lean").map(str::to_string));
+    let old_lean = lean_record.clone().unwrap_or_default();
+    // (fewer's old autoCompactWindow line, 1.0.0 to 1.2.0: taken back while it is still fewer's,
+    // before fewer's hooks are added; its claim leaves the record with the retired parts)
+    let window_back = savers::take_back_window(&mut after, lean_record.as_deref());
     let (retired, kept_lean) = savers::retired_parts(&old_lean);
     // (the add-ons back: 1.1.0; the session titles back: 1.2.0)
-    let add_ons_back = retired.split(',').any(|p| p != "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" && !p.is_empty());
+    let add_ons_back = retired.split(',').any(|p| !matches!(p, "" | "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE" | "lean:window"));
     let titles_back = retired.split(',').any(|p| p == "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE");
-    let updated = !savers::remove_lean(&mut after, &retired).is_empty() || !retired.is_empty();
+    let updated = !savers::remove_lean(&mut after, &retired).is_empty() || !retired.is_empty() || window_back;
     // (an update from a version before 1.2.0: workflows and the Artifact tool were turned off by
     // fewer; they are the developer's switches, so fewer's own values are taken back)
     let old_start = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.start").map(str::to_string)).unwrap_or_default();
     let (retired_start, kept_start) = savers::retired_start(&old_start);
     let features_back = !savers::remove_start(&mut after, &retired_start).is_empty() || !retired_start.is_empty();
     let skills = savers::skills_found(&dir);
-    // (a window the developer set is theirs, whatever its value: kept, never taken back)
-    let their_window = now.get(savers::WINDOW_KEY).map(|v| v.to_string());
     let plan = savers::add(&mut after, home, me).and_then(|said| {
         let names = savers::start_plan(&after, &skills);
         let start = savers::add_start(&mut after, &names)?;
         let mut lean = savers::lean_plan(&after, home);
         lean.extend(savers::reads_plan(&after, &word));
-        let lean = savers::add_lean(&mut after, &lean, home, their_window.is_some())?;
+        let lean = savers::add_lean(&mut after, &lean, home)?;
         Ok((said, names.len(), start, lean))
     });
     let (_, n_skills, start, lean) = match plan {
@@ -1036,6 +1039,17 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
             return Ok(true);
         }
     };
+    // (settings.json unchanged: an earlier version's retired part the developer changed since,
+    // such as a window set over fewer's old one, stays theirs, and fewer's claim to it leaves
+    // the record all the same, as it does below)
+    if after == now && !o.dry_run && plan_shown != Plan::Preview && let Ok(h) = &s.home {
+        if !retired.is_empty() {
+            let _ = config::set(h, "savers.lean", &kept_lean);
+        }
+        if !retired_start.is_empty() {
+            let _ = config::set(h, "savers.start", &kept_start);
+        }
+    }
     if after == now && savers::agents_there(&dir, &word) {
         if plan_shown == Plan::Quiet {
             writeln!(t.out, "Fewer is on already. To turn it off: fewer off")?;
@@ -1069,10 +1083,17 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
         "fewer's reading commands ({}) run without asking, as Claude Code's Read tool does: they keep your Read permission rules and stay inside the project themselves (a file outside it is left to the Read tool, which asks).",
         savers::READS.join(", ")
     );
-    // (on already, from an earlier version: what this version changes, said as such)
+    // (on already, from an earlier version: what this version changes, said as such; fewer's own
+    // old autoCompactWindow line is not in this list: WINDOW_BACK says it once it is out)
     let updating = was_on && (updated || reads || features_back);
     if updating && !matches!(plan_shown, Plan::Shown | Plan::Quiet) {
-        writeln!(t.out, "{}", wrapped("", "", &format!("fewer is on; this version changes it in {} (a copy of the file is kept first) and in its agents' files:", tilde(&file))))?;
+        if add_ons_back || features_back || titles_back || reads {
+            writeln!(t.out, "{}", wrapped("", "", &format!("fewer is on; this version changes it in {} (a copy of the file is kept first) and in its agents' files:", tilde(&file))))?;
+        } else if o.dry_run || plan_shown == Plan::Preview {
+            // (nothing this list names, fewer's old line alone: a dry run, and install's screen
+            // before its question, still say that the file changes)
+            writeln!(t.out, "{}", wrapped("", "", &format!("fewer is on; this version brings it up to date in {} (a copy of the file is kept first) and in its agents' files.", tilde(&file))))?;
+        }
         if add_ons_back {
             writeln!(t.out, "{}", wrapped("  - ", "    ", "Your add-ons (MCP servers) and claude.ai's connectors work again, as they do without fewer; only fewer's own MCP server stays off (Claude runs fewer's commands instead)."))?;
             writeln!(t.out, "{}", wrapped("  - ", "    ", "Claude changes files with Claude Code's own Edit and Write tools, so rewind (Esc Esc) and your permission rules work as usual."))?;
@@ -1098,12 +1119,7 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
         let theirs = after.get("agent").and_then(crate::json::Json::str).unwrap_or("?").to_string();
         bullet(t, &format!("Your own agent ({theirs}) stays Claude Code's main agent, so the lean start is not used (the savings need it): to use it, take \"agent\" out of {} and run fewer on.", tilde(&file)))?;
     }
-    // (the developer's own window is kept, and said so)
-    let compacted = match &their_window {
-        Some(v) => format!("long chats compacted as you set it (autoCompactWindow {v})"),
-        None => format!("long chats compacted at about {} tokens, with a short summary", group(savers::LEAN_WINDOW - savers::BELOW)),
-    };
-    bullet(t, &format!("Long output of commands that succeed comes back short (all of it saved); new and compacted chats start with fewer's card; {compacted}."))?;
+    bullet(t, "Long output of commands that succeed comes back short (all of it saved); new and compacted chats start with fewer's card.")?;
     // (with the developer's own agent, fewer's own server stays on too: savers::lean_plan)
     let add_ons = if lean.split(',').any(|r| r == "lean:deny-own") {
         "; fewer's own MCP server off (Claude runs fewer's commands instead; your other add-ons stay as they are)"
@@ -1170,13 +1186,17 @@ fn tenx_step(s: &Setup, o: Opts, t: &mut Talk, me: &Path, plan_shown: Plan) -> i
             let copy = copy.map(|c| format!(" (a copy of the file before this change: {})", tilde(&c))).unwrap_or_default();
             if plan_shown == Plan::Quiet {
                 writeln!(t.out, "✓ Fewer is on. To turn it off: fewer off")?;
-                return Ok(true);
+            } else {
+                let done = if updating { "fewer is brought up to this version" } else { "fewer is on" };
+                writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("{done}{copy}: it applies to new Claude Code chats, and to old ones when you reopen them.")))?;
+                // (`fewer on` alone: what next; install says it after)
+                if plan_shown == Plan::Show {
+                    writeln!(t.out, "  fewer tokens shows the tokens saved; fewer off turns it off.")?;
+                }
             }
-            let done = if updating { "fewer is brought up to this version" } else { "fewer is on" };
-            writeln!(t.out, "{}", wrapped("✓ ", "  ", &format!("{done}{copy}: it applies to new Claude Code chats, and to old ones when you reopen them.")))?;
-            // (`fewer on` alone: what next; install says it after)
-            if plan_shown == Plan::Show {
-                writeln!(t.out, "  fewer tokens shows the tokens saved; fewer off turns it off.")?;
+            // (fewer's old window line is out now: written above)
+            if window_back {
+                say_window_back(t)?;
             }
             Ok(true)
         }
@@ -1200,14 +1220,20 @@ enum Plan {
 }
 
 /// What fewer put in Claude Code's settings, taken out on a copy: (the file, its bytes as
-/// read, the settings after, what was taken out); None when nothing of it is there.
-type TakeBack = (PathBuf, Option<Vec<u8>>, crate::json::Json, Vec<String>);
+/// read, the settings after, what was taken out, whether fewer's own old autoCompactWindow
+/// line is among it: WINDOW_BACK once it is written); None when nothing of it is there.
+type TakeBack = (PathBuf, Option<Vec<u8>>, crate::json::Json, Vec<String>, bool);
 
 fn take_back_plan(s: &Setup) -> Option<TakeBack> {
     let record = s.home.as_ref().map(|h| config::get(&config::read(h), "savers.start").unwrap_or("").to_string()).unwrap_or_default();
-    let lean = s.home.as_ref().map(|h| config::get(&config::read(h), "savers.lean").unwrap_or("").to_string()).unwrap_or_default();
+    // (None: the store holds no record at all; an empty one is a record of nothing)
+    let lean_record = s.home.as_ref().ok().and_then(|h| config::get(&config::read(h), "savers.lean").map(str::to_string));
+    let lean = lean_record.clone().unwrap_or_default();
     let (file, (was, now)) = savers::settings_file(&s.places).and_then(|f| savers::read(&f).map(|r| (f, r))).ok()?;
     let mut after = now;
+    // (fewer's old autoCompactWindow line, by the record as the store holds it, while fewer's
+    // hooks are still there)
+    let window_out = savers::take_back_window(&mut after, lean_record.as_deref());
     // (fewer's marks in the file, but no record of it in the store: the store removed, another
     // FEWER_HOME, a settings.json from another machine. What fewer writes is taken out at its own
     // values, so that the add-ons are not left off and Claude Code not pointed at a removed agent)
@@ -1217,16 +1243,18 @@ fn take_back_plan(s: &Setup) -> Option<TakeBack> {
     } else {
         (record, lean)
     };
-    // (the window by its value only for an install older than fewer's record)
-    let mut said = savers::remove(&mut after, lean.is_empty());
+    let mut said = savers::remove(&mut after);
     said.extend(savers::remove_start(&mut after, &record));
     said.extend(savers::remove_lean(&mut after, &lean));
-    (!said.is_empty()).then_some((file, was, after, said))
+    if window_out {
+        said.push(format!("{} removed", savers::WINDOW_KEY));
+    }
+    (!said.is_empty()).then_some((file, was, after, said, window_out))
 }
 
 /// Take fewer back as planned: the record cleared, fewer's agents' files removed, the
 /// settings written (a copy kept). The copy's path, or why it failed.
-fn take_back(s: &Setup, (file, was, after, said): &TakeBack) -> Result<Option<PathBuf>, String> {
+fn take_back(s: &Setup, (file, was, after, said, _): &TakeBack) -> Result<Option<PathBuf>, String> {
     let made = s.home.as_ref().map(|h| config::read(h)).unwrap_or_default();
     let made_file = config::get(&made, "savers.made") == Some("settings.json");
     let made_agents = config::get(&made, "savers.made_agents") == Some("agents");
@@ -1333,7 +1361,7 @@ fn tenx_off(s: &Setup, dry_run: bool, t: &mut Talk) -> io::Result<i32> {
     let agents = s.places.claude.as_ref().is_ok_and(|d| savers::lean_agent_file(d).exists() || savers::workflow_agent_file(d).exists() || savers::worker_agent_file(d).exists());
     let Some(plan) = plan.or_else(|| {
         // only the agents' files are left: take them out alone
-        agents.then(|| savers::settings_file(&s.places).ok().and_then(|f| savers::read(&f).ok().map(|(was, now)| (f, was, now, Vec::new())))).flatten()
+        agents.then(|| savers::settings_file(&s.places).ok().and_then(|f| savers::read(&f).ok().map(|(was, now)| (f, was, now, Vec::new(), false)))).flatten()
     }) else {
         writeln!(t.out, "fewer is off already.")?;
         return Ok(0);
@@ -1359,6 +1387,9 @@ fn tenx_off(s: &Setup, dry_run: bool, t: &mut Talk) -> io::Result<i32> {
                 let _ = config::set(h, "savers.off", &now_utc());
             }
             writeln!(t.out, "✓ Fewer is off. To turn it on: fewer on")?;
+            if plan.4 {
+                say_window_back(t)?;
+            }
             Ok(0)
         }
         Err(e) => {
@@ -1430,7 +1461,7 @@ pub fn uninstall(s: &Setup, o: Opts, t: &mut Talk) -> io::Result<i32> {
         writeln!(t.out, "The command:")?;
         t.command(false, &line)?;
     }
-    if let Some((file, _, _, said)) = &savers {
+    if let Some((file, _, _, said, _)) = &savers {
         // (a settings.json fewer made, nothing else in it: removed, no copy)
         let made = s.home.as_ref().is_ok_and(|h| config::get(&config::read(h), "savers.made") == Some("settings.json"));
         let gone = made && savers::settings_file(&s.places).ok().and_then(|f| take_back_plan(s).filter(|p| p.0 == f)).is_some_and(|p| p.2 == crate::json::Json::Obj(Vec::new()));
@@ -1478,6 +1509,9 @@ pub fn uninstall(s: &Setup, o: Opts, t: &mut Talk) -> io::Result<i32> {
                 writeln!(t.err, "fewer uninstall: fewer could not be taken out of {}: {e}", plan.0.display())?;
                 return Ok(1);
             }
+        }
+        if plan.4 {
+            say_window_back(t)?;
         }
     }
     // (the MCP server fewer hid: looked for again now that fewer is out)
@@ -1823,6 +1857,8 @@ mod tests {
         assert!(flat(&out).contains(&format!("3. Save your Claude Code chats ({}) on this computer too, in {}, with secrets hidden: the token card and the start card come from them (sessions = on in {}; to stop: fewer memory sessions off).", shown(&d, "claude/projects"), tilde(&d.join("home")), tilde(&file))), "{out}");
         assert!(out.ends_with("Dry run: nothing was changed. `fewer install` asks \"Register fewer and turn it on (the changes above)? [y/N]\" and makes them on a yes; `fewer off` takes fewer back out.\n"), "{out}");
         assert!(!out.contains("Register it?") && !out.contains("[y/N] "));
+        // (fewer sets no window: the plan says nothing of one)
+        assert!(flat(&out).contains("new and compacted chats start with fewer's card. ") && !out.contains("autoCompactWindow") && !out.contains("compacted at"), "{out}");
         assert!(!d.join("claude").exists());
         let (code, _, _) = talk(install, &s, Opts { dry_run: true, yes: true }, false, "");
         assert_eq!(code, 0);
@@ -1850,7 +1886,10 @@ mod tests {
         assert_eq!(calls(&d)[3..], [get_call(), add_call(&d.join("home"))]);
         assert_eq!(config_rest(&d).as_deref(), Some("sessions = on\nsessions.codex = off\nsessions.aider = off\nsessions.cline = off\nsessions.cursor = off\n"));
         let settings = fs::read_to_string(d.join("claude").join("settings.json")).unwrap();
-        assert!(settings.contains(&format!("\"command\": \"FEWER_HOME={} {ME} hook post-bash\"", hook_home(&d.join("home")))) && settings.contains("\"autoCompactWindow\": 100000"), "{settings}");
+        assert!(settings.contains(&format!("\"command\": \"FEWER_HOME={} {ME} hook post-bash\"", hook_home(&d.join("home")))), "{settings}");
+        // (no autoCompactWindow: Claude Code compacts long chats as it does without fewer, and
+        // nothing about it is said)
+        assert!(!settings.contains("autoCompactWindow") && !out.contains("autoCompactWindow") && !restart_said(&out), "{settings}\n{out}");
         // (Claude Code's own switches stay the developer's: workflows, the Artifact tool and the
         // session titles are not touched)
         assert!(!settings.contains("CLAUDE_CODE_DISABLE_WORKFLOWS") && !settings.contains("enableArtifact") && !settings.contains("CLAUDE_CODE_DISABLE_TERMINAL_TITLE"), "{settings}");
@@ -2071,32 +2110,309 @@ mod tests {
 
     #[test]
     fn a_window_the_developer_set_stays_through_off_and_uninstall() {
-        // (the values an earlier fewer wrote, 120000 and 150000, set by the developer: kept by
-        // install, by off, by uninstall, and by uninstall after off)
-        for v in ["120000", "150000"] {
+        // (a window the developer set before fewer, at a value an earlier fewer wrote too
+        // (100000, 120000, 150000) or another: kept by install, an update, fewer on, off,
+        // uninstall, and uninstall after off; never mentioned, so no restart line either)
+        for v in ["100000", "120000", "150000", "400000"] {
             let (d, s) = setup(&format!("own-window-{v}"));
             fs::create_dir_all(d.join("claude")).unwrap();
             let file = d.join("claude").join("settings.json");
             let theirs = format!("{{\n  \"autoCompactWindow\": {v}\n}}\n");
             fs::write(&file, &theirs).unwrap();
-            let on_again = |s: &Setup| talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Show).map(|ok| if ok { 0 } else { 1 }), s, Opts::default(), false, "");
+            let on_quiet = |s: &Setup| talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Quiet).map(|ok| if ok { 0 } else { 1 }), s, Opts::default(), false, "");
+            let on_show = |s: &Setup| talk(|s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Show).map(|ok| if ok { 0 } else { 1 }), s, Opts::default(), false, "");
+            let quiet = |out: &str| !out.contains("autoCompactWindow") && !restart_said(out);
             let (code, out, _) = talk(install, &s, Opts::default(), true, "y\n");
-            assert_eq!(code, 0, "{out}");
+            assert!(code == 0 && quiet(&out), "{out}");
             assert!(fs::read_to_string(&file).unwrap().contains(&format!("\"autoCompactWindow\": {v},")), "{v}");
+            // (an update, and fewer on: on already)
+            let (code, out, _) = talk(install, &s, Opts { yes: true, ..Opts::default() }, false, "");
+            assert!(code == 0 && quiet(&out) && out.contains("fewer is on already in"), "{out}");
+            let (code, out, _) = on_quiet(&s);
+            assert!(code == 0 && quiet(&out), "{out}");
             let (code, out, _) = talk(|s, _, t| tenx_off(s, false, t), &s, Opts::default(), false, "");
-            assert!(code == 0 && !out.contains("autoCompactWindow removed"), "{out}");
+            assert!(code == 0 && quiet(&out), "{out}");
             assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
-            on_again(&s);
+            let (code, out, _) = on_show(&s);
+            assert!(code == 0 && quiet(&out), "{out}");
             let (code, out, _) = talk(uninstall, &s, Opts::default(), true, "y\n");
-            assert!(code == 0 && !out.contains("autoCompactWindow removed"), "{out}");
+            assert!(code == 0 && quiet(&out), "{out}");
             assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
             let (code, out, _) = talk(install, &s, Opts::default(), true, "y\n");
-            assert_eq!(code, 0, "{out}");
+            assert!(code == 0 && quiet(&out), "{out}");
             talk(|s, _, t| tenx_off(s, false, t), &s, Opts::default(), false, "");
             let (code, out, _) = talk(uninstall, &s, Opts::default(), true, "y\n");
-            assert!(code == 0 && !out.contains("autoCompactWindow removed"), "{out}");
+            assert!(code == 0 && quiet(&out), "{out}");
             assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
             fs::remove_dir_all(&d).unwrap();
+        }
+    }
+
+    /// The settings and the records 1.0.0 (1.1.0 alike) and 1.2.0 left with fewer on, installed
+    /// over the developer's {"model":"opus"} with this test's store and ME (the reads' rules
+    /// naming fewer as command_word does): (the version, settings.json, savers.start,
+    /// savers.lean, settings.json once this version has taken fewer's old window line back,
+    /// savers.lean then).
+    fn golden(home: &Path) -> Vec<(&'static str, String, &'static str, String, String, String)> {
+        let q = |x: &str| crate::json::Json::from(x).to_string();
+        let h = home.to_str().unwrap();
+        let hook = |event: &str, matcher: &str, which: &str| format!(r#"{}:[{{{matcher}"hooks":[{{"type":"command","command":{}}}]}}]"#, q(event), q(&savers::command(Some(h), ME, which)));
+        let three = [hook("PostToolUse", r#""matcher":"Bash","#, "post-bash"), hook("SessionStart", "", "start"), hook("PreCompact", "", "precompact")].join(",");
+        let four = format!("{three},{}", hook("UserPromptSubmit", "", "ahead"));
+        let rules = savers::read_rules(&savers::command_word(ME, std::env::var_os("PATH").as_deref()));
+        let allow = rules.iter().map(|r| q(r)).collect::<Vec<_>>().join(",");
+        let allowed: String = rules.iter().map(|r| format!(",lean:allow:{r}")).collect();
+        let rest = format!(r#""deniedMcpServers":[{{"serverName":"fewer"}}],"permissions":{{"allow":[{allow}]}}"#);
+        let env = format!(r#""CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":{}"#, q(h));
+        let lean = format!("lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own{allowed}");
+        vec![
+            (
+                "1.0.0 and 1.1.0",
+                format!(r#"{{"model":"opus","hooks":{{{three}}},"autoCompactWindow":100000,"env":{{"CLAUDE_CODE_DISABLE_WORKFLOWS":"1","CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","FEWER_HOME":{}}},"enableArtifact":false,"agent":"fewer-lean",{rest}}}"#, q(h)),
+                "workflows,artifact",
+                format!("lean:agent,lean:env:CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT,lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE,lean:env:CLAUDE_CODE_TOTAL_TOKENS_REMINDER,lean:env:FEWER_HOME,lean:deny-own{allowed},lean:window"),
+                // (with 1.2.0's own changes too: the switches given back, the read-ahead hook)
+                format!(r#"{{"model":"opus","hooks":{{{four}}},"env":{{{env}}},"agent":"fewer-lean",{rest}}}"#),
+                lean.clone(),
+            ),
+            (
+                "1.2.0",
+                format!(r#"{{"model":"opus","hooks":{{{four}}},"autoCompactWindow":100000,"agent":"fewer-lean","env":{{{env}}},{rest}}}"#),
+                "",
+                format!("{lean},lean:window"),
+                format!(r#"{{"model":"opus","hooks":{{{four}}},"agent":"fewer-lean","env":{{{env}}},{rest}}}"#),
+                lean,
+            ),
+        ]
+    }
+
+    /// A golden state put in a test's folder: settings.json (as fewer writes it) and the store's
+    /// record, fewer on since a week before. The settings' path.
+    fn put_golden(d: &Path, settings: &str, start: &str, lean: &str) -> PathBuf {
+        let (dir, home) = (d.join("claude"), d.join("home"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        let file = dir.join("settings.json");
+        fs::write(&file, savers::pretty(&json_of(settings))).unwrap();
+        for (k, v) in [("savers.on", "2026-11-20T10:00:00"), ("savers.off", ""), ("savers.start", start), ("savers.lean", lean)] {
+            config::set(&home, k, v).unwrap();
+        }
+        file
+    }
+
+    fn json_of(text: &str) -> crate::json::Json {
+        crate::json::parse(text.as_bytes()).unwrap()
+    }
+
+    fn json_in(file: &Path) -> crate::json::Json {
+        crate::json::parse(&fs::read(file).unwrap()).unwrap()
+    }
+
+    /// The line said when fewer's old window line came out (its wrapped lines joined).
+    fn window_back() -> String {
+        flat(&wrapped("✓ ", "  ", WINDOW_BACK))
+    }
+
+    /// Whether `out` says to restart Claude Code (its wrapped lines joined).
+    fn restart_said(out: &str) -> bool {
+        flat(out).contains("Restart Claude Code")
+    }
+
+    const OFF: Flow = |s, _, t| tenx_off(s, false, t);
+    const OFF_DRY: Flow = |s, _, t| tenx_off(s, true, t);
+    const ON: Flow = |s, o, t| tenx_step(s, o, t, Path::new(ME), Plan::Quiet).map(|ok| if ok { 0 } else { 1 });
+    /// `fewer on --dry-run`, and fewer's part of install's screen before its question.
+    const ON_DRY: Flow = |s, _, t| tenx_step(s, Opts { dry_run: true, yes: false }, t, Path::new(ME), Plan::Show).map(|ok| if ok { 0 } else { 1 });
+    const PREVIEW: Flow = |s, _, t| tenx_step(s, Opts { dry_run: true, yes: true }, t, Path::new(ME), Plan::Preview).map(|ok| if ok { 0 } else { 1 });
+
+    #[test]
+    fn an_update_takes_fewers_old_window_line_back_once() {
+        // (1.0.0 to 1.2.0 wrote autoCompactWindow 100000, so Claude Code compacted near 67,000
+        // tokens: the update (fewer update runs this version's install --yes) and fewer on take
+        // the line out, say so once, and keep every other setting)
+        for way in ["update", "on"] {
+            for n in 0..2 {
+                let (d, s) = setup(&format!("old-window-{way}-{n}"));
+                let home = d.join("home");
+                let (v, set, start, lean, set_after, lean_after) = golden(&home).swap_remove(n);
+                let file = put_golden(&d, &set, start, &lean);
+                // a dry run first: the change said, never the window (1.2.0: nothing else is
+                // listed), nothing changed, no restart line
+                if way == "update" {
+                    let general = format!("{}\n", wrapped("", "", &format!("fewer is on; this version brings it up to date in {} (a copy of the file is kept first) and in its agents' files.", tilde(&file))));
+                    for (flow, then) in [(ON_DRY, "Dry run: nothing was changed. fewer on turns it on; fewer off turns it off.\n"), (PREVIEW, "")] {
+                        let (code, out, _) = talk(flow, &s, Opts::default(), false, "");
+                        assert!(code == 0 && !out.contains("autoCompactWindow") && !restart_said(&out), "{v}: {out}");
+                        if n == 0 {
+                            assert!(flat(&out).starts_with("fewer is on; this version changes it in ") && !out.contains("brings it up to date"), "{v}: {out}");
+                        } else {
+                            assert_eq!(out, format!("{general}{then}"), "{v}");
+                        }
+                        assert_eq!(json_in(&file), json_of(&set), "{v}");
+                        assert_eq!(config::get(&config::read(&home), "savers.lean"), Some(lean.as_str()), "{v}");
+                    }
+                }
+                let yes = Opts { yes: true, ..Opts::default() };
+                let (code, out, err) = if way == "update" { talk(install, &s, yes, false, "") } else { talk(ON, &s, yes, false, "") };
+                assert_eq!((code, err.as_str()), (0, ""), "{v}, {way}: {out}");
+                assert_eq!(json_in(&file), json_of(&set_after), "{v}, {way}: {out}");
+                // (the restart line once, and the only word of the window)
+                assert_eq!(flat(&out).matches(&window_back()).count(), 1, "{v}, {way}: {out}");
+                assert_eq!(out.matches("autoCompactWindow").count(), 1, "{v}, {way}: {out}");
+                if way == "on" {
+                    assert_eq!(out, format!("✓ Fewer is on. To turn it off: fewer off\n{}\n", wrapped("✓ ", "  ", WINDOW_BACK)), "{v}");
+                } else {
+                    assert!(flat(&out).contains(&format!("fewer tokens shows the tokens saved; fewer off turns it off. {}", window_back())) && flat(&out).contains("✓ fewer is brought up to this version (a copy of the file before this change: "), "{v}: {out}");
+                    // (1.2.0's own change said as before; nothing more listed for 1.2.0)
+                    assert_eq!(out.contains("Claude Code's features are as you have them again"), n == 0, "{v}: {out}");
+                    assert_eq!(out.contains("this version changes it in"), n == 0, "{v}: {out}");
+                }
+                // fewer's claim to it out of the record, the rest kept
+                let cfg = config::read(&home);
+                assert_eq!((config::get(&cfg, "savers.start"), config::get(&cfg, "savers.lean")), (Some(""), Some(lean_after.as_str())), "{v}, {way}");
+                // a second update, and fewer on: nothing to take out, nothing said of it
+                let text = fs::read_to_string(&file).unwrap();
+                let (code, out, _) = talk(install, &s, yes, false, "");
+                assert!(code == 0 && out.contains("fewer is on already in") && !out.contains("autoCompactWindow") && !restart_said(&out), "{v}, {way}: {out}");
+                let (code, out, _) = talk(ON, &s, yes, false, "");
+                assert_eq!((code, out.as_str()), (0, "Fewer is on already. To turn it off: fewer off\n"), "{v}, {way}");
+                assert_eq!(fs::read_to_string(&file).unwrap(), text);
+                // off: the developer's settings as they were, the line gone already
+                let (code, out, _) = talk(OFF, &s, Opts::default(), false, "");
+                assert_eq!((code, out.as_str()), (0, "✓ Fewer is off. To turn it on: fewer on\n"), "{v}, {way}");
+                assert_eq!(json_in(&file), json_of(r#"{"model":"opus"}"#), "{v}, {way}");
+                fs::remove_dir_all(&d).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn off_and_uninstall_take_fewers_old_window_line_out() {
+        // (fewer left on by 1.0.0 to 1.2.0, its line still there: off and uninstall take it out
+        // with the rest and say so once; by its record, or by its value beside fewer's hooks when
+        // the store is gone)
+        for way in ["off", "uninstall"] {
+            for n in 0..2 {
+                for record in [true, false] {
+                    let (d, s) = setup(&format!("old-window-{way}-{n}-{record}"));
+                    let home = d.join("home");
+                    let (v, set, start, lean, ..) = golden(&home).swap_remove(n);
+                    let file = put_golden(&d, &set, start, &lean);
+                    if !record {
+                        fs::remove_dir_all(&home).unwrap();
+                    }
+                    let what = format!("{v}, {way}, record {record}");
+                    // a dry run: listed, nothing changed, no restart line
+                    let (code, out, _) = if way == "off" { talk(OFF_DRY, &s, Opts::default(), false, "") } else { talk(uninstall, &s, Opts { dry_run: true, yes: true }, false, "") };
+                    assert!(code == 0 && out.contains("autoCompactWindow removed") && !restart_said(&out), "{what}: {out}");
+                    assert_eq!(json_in(&file), json_of(&set), "{what}");
+                    let (code, out, err) = if way == "off" { talk(OFF, &s, Opts::default(), false, "") } else { talk(uninstall, &s, Opts { yes: true, ..Opts::default() }, false, "") };
+                    assert_eq!((code, err.as_str()), (0, ""), "{what}: {out}");
+                    assert_eq!(json_in(&file), json_of(r#"{"model":"opus"}"#), "{what}: {out}");
+                    assert_eq!(flat(&out).matches(&window_back()).count(), 1, "{what}: {out}");
+                    if way == "off" {
+                        assert_eq!(out, format!("✓ Fewer is off. To turn it on: fewer on\n{}\n", wrapped("✓ ", "  ", WINDOW_BACK)), "{what}");
+                    } else {
+                        // (said once fewer is out of the file, not in the list before)
+                        let (listed, out_of, said) = (out.find("autoCompactWindow removed"), out.find("fewer is out of "), out.find("✓ Took out Fewer's"));
+                        assert!(listed.is_some() && listed < out_of && out_of < said && out.ends_with("Removed from Claude Code.\n"), "{what}: {out}");
+                    }
+                    // again: nothing of fewer left, so nothing said of the window
+                    let (code, out, _) = if way == "off" { talk(OFF, &s, Opts::default(), false, "") } else { talk(uninstall, &s, Opts { yes: true, ..Opts::default() }, false, "") };
+                    assert!(code == 0 && !out.contains("autoCompactWindow") && !restart_said(&out), "{what}: {out}");
+                    fs::remove_dir_all(&d).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_the_developer_changed_or_set_is_kept_and_not_mentioned() {
+        // (over fewer's old line, changed since (400000); or set before fewer, which 1.0.0 to
+        // 1.2.0 kept and did not record, at fewer's own old value (100000)): kept by the update,
+        // fewer on, off and uninstall, never mentioned; fewer's claim leaves the record
+        for n in 0..2 {
+            for (w, claimed) in [("400000", true), ("100000", false)] {
+                let (d, s) = setup(&format!("their-window-{n}-{w}"));
+                let home = d.join("home");
+                let (v, set, start, lean, set_after, lean_after) = golden(&home).swap_remove(n);
+                let set = set.replace(r#""autoCompactWindow":100000"#, &format!(r#""autoCompactWindow":{w}"#));
+                let lean = if claimed { lean } else { lean.replace(",lean:window", "") };
+                let file = put_golden(&d, &set, start, &lean);
+                let what = format!("{v}, {w}");
+                let quiet = |out: &str| !out.contains("autoCompactWindow") && !restart_said(out);
+                let yes = Opts { yes: true, ..Opts::default() };
+                let (code, out, err) = talk(install, &s, yes, false, "");
+                assert!(code == 0 && err.is_empty() && quiet(&out), "{what}: {out}");
+                // (their window where it was, everything else as for fewer's own line)
+                let mut now = json_in(&file);
+                assert_eq!(now.get(savers::WINDOW_KEY).map(|x| x.to_string()).as_deref(), Some(w), "{what}");
+                if let crate::json::Json::Obj(top) = &mut now {
+                    top.retain(|(k, _)| k != savers::WINDOW_KEY);
+                }
+                assert_eq!(now, json_of(&set_after), "{what}");
+                assert_eq!(config::get(&config::read(&home), "savers.lean"), Some(lean_after.as_str()), "{what}");
+                let (code, out, _) = talk(ON, &s, yes, false, "");
+                assert!(code == 0 && quiet(&out), "{what}: {out}");
+                let (code, out, _) = talk(OFF, &s, Opts::default(), false, "");
+                assert!(code == 0 && quiet(&out), "{what}: {out}");
+                assert_eq!(json_in(&file), json_of(&format!(r#"{{"model":"opus","autoCompactWindow":{w}}}"#)), "{what}");
+                let (code, out, _) = talk(uninstall, &s, yes, false, "");
+                assert!(code == 0 && quiet(&out), "{what}: {out}");
+                assert_eq!(json_in(&file), json_of(&format!(r#"{{"model":"opus","autoCompactWindow":{w}}}"#)), "{what}");
+                fs::remove_dir_all(&d).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn with_their_own_agent_their_window_stays() {
+        // (the developer's own agent and both lean env values set before fewer, and their window,
+        // at a value an earlier fewer wrote too: 1.0.0 to 1.2.0 wrote nothing of the lean part, so
+        // 1.2.0 left savers.lean empty, and an update from 1.0.0 empties it (its one part is
+        // retired). An empty record is a record: the window is kept by the update, fewer on, a
+        // second update, off and uninstall, never mentioned. No FEWER_HOME, as real installs)
+        let q = |x: &str| crate::json::Json::from(x).to_string();
+        let hook = |event: &str, matcher: &str, which: &str| format!(r#"{}:[{{{matcher}"hooks":[{{"type":"command","command":{}}}]}}]"#, q(event), q(&savers::command(None, ME, which)));
+        let three = [hook("PostToolUse", r#""matcher":"Bash","#, "post-bash"), hook("SessionStart", "", "start"), hook("PreCompact", "", "precompact")].join(",");
+        let four = format!("{three},{}", hook("UserPromptSubmit", "", "ahead"));
+        let env = r#""CLAUDE_CODE_ATTRIBUTION_ANNOUNCEMENT":"0","CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off""#;
+        for (v, start, lean) in [("1.0.0 and 1.1.0", "workflows,artifact", "lean:env:CLAUDE_CODE_DISABLE_TERMINAL_TITLE"), ("1.2.0", "", "")] {
+            for w in ["100000", "120000", "150000"] {
+                let set = if start.is_empty() {
+                    format!(r#"{{"model":"opus","agent":"mine","env":{{{env}}},"autoCompactWindow":{w},"hooks":{{{four}}}}}"#)
+                } else {
+                    format!(r#"{{"model":"opus","agent":"mine","env":{{{env},"CLAUDE_CODE_DISABLE_WORKFLOWS":"1","CLAUDE_CODE_DISABLE_TERMINAL_TITLE":"1"}},"autoCompactWindow":{w},"hooks":{{{three}}},"enableArtifact":false}}"#)
+                };
+                let (d, s) = setup(&format!("own-agent-{}-{w}", start.len()));
+                let s = Setup { home_var: None, ..s };
+                let home = d.join("home");
+                let file = put_golden(&d, &set, start, lean);
+                fs::write(d.join("stub").join("server-fewer"), format!("scope=user\ncommand={ME}\narg=mcp\n")).unwrap();
+                let what = format!("{v}, {w}");
+                let theirs = json_of(&format!(r#"{{"model":"opus","agent":"mine","env":{{{env}}},"autoCompactWindow":{w}}}"#));
+                let quiet = |out: &str| !out.contains("autoCompactWindow") && !restart_said(out);
+                let window = |file: &Path| json_in(file).get(savers::WINDOW_KEY).map(|x| x.to_string());
+                let yes = Opts { yes: true, ..Opts::default() };
+                let (code, out, err) = talk(install, &s, yes, false, "");
+                assert!(code == 0 && err.is_empty() && quiet(&out), "{what}: {out}{err}");
+                assert_eq!(window(&file).as_deref(), Some(w), "{what}: {out}");
+                // (the record left empty, a record still)
+                let cfg = config::read(&home);
+                assert_eq!((config::get(&cfg, "savers.start"), config::get(&cfg, "savers.lean")), (Some(""), Some("")), "{what}");
+                for flow in [ON, install as Flow] {
+                    let (code, out, _) = talk(flow, &s, yes, false, "");
+                    assert!(code == 0 && quiet(&out), "{what}: {out}");
+                    assert_eq!(window(&file).as_deref(), Some(w), "{what}: {out}");
+                }
+                let (code, out, _) = talk(OFF, &s, Opts::default(), false, "");
+                assert_eq!((code, out.as_str()), (0, "✓ Fewer is off. To turn it on: fewer on\n"), "{what}");
+                assert_eq!(json_in(&file), theirs, "{what}");
+                let (code, out, _) = talk(uninstall, &s, yes, false, "");
+                assert!(code == 0 && quiet(&out), "{what}: {out}");
+                assert_eq!(json_in(&file), theirs, "{what}");
+                fs::remove_dir_all(&d).unwrap();
+            }
         }
     }
 
@@ -2111,6 +2427,8 @@ mod tests {
         let (code, out, err) = talk(install, &s, Opts::default(), true, "y\n");
         assert_eq!((code, err.as_str()), (0, ""), "{out}");
         assert_eq!(out.matches("[y/N]").count(), 1, "{out}");
+        // (the developer's window is theirs: kept, and not mentioned)
+        assert!(!out.contains("autoCompactWindow") && !restart_said(&out), "{out}");
         let h = d.join("home").display().to_string();
         assert!(flat(&out).contains("✓ fewer is on (a copy of the file before this change: ") && flat(&out).ends_with(&flat(&format!("it applies to new Claude Code chats, and to old ones when you reopen them.\n✓ fewer's slash commands are in Claude Code: type /fewer in a chat (/fewer-tokens, /fewer-off, /fewer-on, /fewer-memory).\n{USE_LINE}"))), "{out}");
         let now = fs::read_to_string(&file).unwrap();

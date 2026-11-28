@@ -1,6 +1,6 @@
 [package]
 name = "fewer"
-version = "1.2.0"
+version = "1.2.1"
 # the shared files from ../src are edition 2024
 edition = "2024"
 # std File::lock
